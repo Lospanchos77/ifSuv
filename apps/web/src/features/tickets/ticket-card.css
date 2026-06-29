@@ -1,0 +1,37 @@
+/* Card cliquable — petit lift au hover */
+.ticket-card {
+  transition: transform 0.15s ease, filter 0.15s ease;
+}
+
+.ticket-card:hover {
+  transform: translateY(-2px);
+  filter: brightness(1.03);
+}
+
+/* Animation alerte pour les tickets HIGH priority */
+
+@keyframes ifsuv-pulse-red {
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgba(229, 62, 62, 0.55);
+  }
+  50% {
+    box-shadow: 0 0 0 10px rgba(229, 62, 62, 0);
+  }
+}
+
+@keyframes ifsuv-blink-priority {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.55;
+  }
+}
+
+.ticket-card-high {
+  animation: ifsuv-pulse-red 2s infinite;
+}
+
+.ticket-card-high .priority-badge-high {
+  animation: ifsuv-blink-priority 1.4s infinite;
+}

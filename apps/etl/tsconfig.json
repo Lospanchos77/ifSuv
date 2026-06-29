@@ -1,0 +1,15 @@
+{
+  "extends": "@ifsuv/config/tsconfig/node.json",
+  "compilerOptions": {
+    "outDir": "./dist",
+    "rootDir": "./src",
+    "noEmit": false,
+    "incremental": true,
+    "tsBuildInfoFile": "./.tsbuildinfo"
+  },
+  "references": [
+    { "path": "../../packages/shared" }
+  ],
+  "include": ["src/**/*"],
+  "exclude": ["dist", "node_modules"]
+}

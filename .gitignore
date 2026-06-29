@@ -1,0 +1,53 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Build output
+dist/
+build/
+.turbo/
+*.tsbuildinfo
+
+# Coverage
+coverage/
+.nyc_output/
+
+# Env
+.env
+.env.local
+.env.*.local
+.env.production
+.env.deploy
+!.env.example
+!.env.production.template
+
+# Editor
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# Misc
+.cache/
+.eslintcache
+.prettiercache
+
+# Docker volumes (dev)
+docker/data/
+
+# Stockage fichiers local (photos)
+**/var/storage/
+
+# Playwright
+test-results/
+playwright-report/
+playwright/.cache/

@@ -1,0 +1,87 @@
+/* SweetAlert2 — surcharges pour s'adapter au theme Mantine.
+   Sans ces règles, Mantine fait hériter une couleur de texte trop pâle et le
+   contenu des popups devient illisible (toast titre quasi-invisible). */
+
+/* ===== Mode clair (défaut) ===== */
+.swal2-popup {
+  background: #ffffff !important;
+  color: #1a1b1e !important;
+}
+
+.swal2-title {
+  color: #1a1b1e !important;
+}
+
+.swal2-html-container {
+  color: #495057 !important;
+}
+
+.swal2-validation-message {
+  background: #f8f9fa !important;
+  color: #1a1b1e !important;
+}
+
+.swal2-input,
+.swal2-textarea,
+.swal2-select {
+  color: #1a1b1e !important;
+  background: #ffffff !important;
+  border-color: #ced4da !important;
+}
+
+.swal2-input::placeholder,
+.swal2-textarea::placeholder {
+  color: #adb5bd !important;
+}
+
+/* ===== Mode sombre ===== */
+.swal-dark .swal2-popup {
+  background: #1a1b1e !important;
+  color: #f1f3f5 !important;
+}
+
+.swal-dark .swal2-title {
+  color: #f1f3f5 !important;
+}
+
+.swal-dark .swal2-html-container {
+  color: #c1c2c5 !important;
+}
+
+.swal-dark .swal2-validation-message {
+  background: #25262b !important;
+  color: #f1f3f5 !important;
+}
+
+.swal-dark .swal2-input,
+.swal-dark .swal2-textarea,
+.swal-dark .swal2-select {
+  background: #25262b !important;
+  color: #f1f3f5 !important;
+  border-color: #373a40 !important;
+}
+
+.swal-dark .swal2-input::placeholder,
+.swal-dark .swal2-textarea::placeholder {
+  color: #909296 !important;
+}
+
+.swal-dark .swal2-icon.swal2-warning {
+  border-color: #f59f00 !important;
+  color: #f59f00 !important;
+}
+
+/* ===== Toasts (haut droite) ===== */
+.swal2-toast {
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25) !important;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+}
+
+.swal-dark .swal2-toast {
+  border-color: rgba(255, 255, 255, 0.08);
+}
+
+.swal2-toast .swal2-title {
+  font-size: 0.95rem !important;
+  font-weight: 500 !important;
+}

@@ -1,0 +1,84 @@
+name: ifsuv-prod
+
+# Stack prod IFSUV — VPS OVH Ubuntu.
+# Lancée via deploy.sh (init/update). Variables d'env lues depuis ../.env.production
+# qui doit être présent à la racine du repo sur le VPS (jamais committed).
+
+services:
+  mongo:
+    image: mongo:7.0.16
+    container_name: ifsuv-mongo
+    restart: unless-stopped
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_INITDB_ROOT_USERNAME}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_INITDB_ROOT_PASSWORD}
+    volumes:
+      - ifsuv-mongo-data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 15s
+      timeout: 5s
+      retries: 6
+      start_period: 30s
+    networks:
+      - ifsuv-prod
+    # Pas de ports exposés vers l'hôte : Mongo accessible uniquement via le network interne.
+
+  api:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.api
+    container_name: ifsuv-api
+    restart: unless-stopped
+    env_file:
+      - ../.env.production
+    environment:
+      # Photos (et futurs PDF) stockées sur un volume persistant, pas de service externe.
+      STORAGE_DIR: /data/storage
+    volumes:
+      - ifsuv-storage:/data/storage
+    depends_on:
+      mongo:
+        condition: service_healthy
+    networks:
+      - ifsuv-prod
+    # Pas de ports exposés vers l'hôte : Caddy reverse-proxy via :3001 interne.
+
+  web:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.web
+    container_name: ifsuv-web
+    restart: unless-stopped
+    networks:
+      - ifsuv-prod
+    # Pas de ports exposés : Caddy proxy via :8080 interne.
+
+  caddy:
+    image: caddy:2.8-alpine
+    container_name: ifsuv-caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      DOMAIN: ${DOMAIN}
+    volumes:
+      - ./Caddyfile.prod:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      - api
+      - web
+    networks:
+      - ifsuv-prod
+
+volumes:
+  ifsuv-mongo-data:
+  ifsuv-storage: # photos des tickets (stockage fichier persistant)
+  caddy-data:
+  caddy-config:
+
+networks:
+  ifsuv-prod:
+    driver: bridge

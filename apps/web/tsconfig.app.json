@@ -1,0 +1,21 @@
+{
+  "extends": "@ifsuv/config/tsconfig/react.json",
+  "compilerOptions": {
+    "outDir": "./dist",
+    "rootDir": "./src",
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["src/*"]
+    },
+    "composite": true,
+    "noEmit": false,
+    "incremental": true,
+    "tsBuildInfoFile": "./.tsbuildinfo.app",
+    "types": ["vite/client", "@testing-library/jest-dom"]
+  },
+  "references": [
+    { "path": "../../packages/shared" }
+  ],
+  "include": ["src/**/*", "test/**/*"],
+  "exclude": ["node_modules", "dist"]
+}

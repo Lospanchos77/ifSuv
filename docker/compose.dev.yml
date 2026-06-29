@@ -1,0 +1,43 @@
+name: ifsuv-dev
+
+# NOTE: le service `mongo` est commenté car le dev utilise le MongoDB Windows
+# local (service Windows sur :27017). Pour le réactiver (ex. CI ou autre poste
+# sans Mongo natif) : décommenter le bloc et stopper d'abord le service Windows
+# (`net stop MongoDB`) pour libérer le port 27017.
+#
+# services:
+#   mongo:
+#     image: mongo:7.0.16
+#     container_name: ifsuv-mongo
+#     restart: unless-stopped
+#     ports:
+#       - "27017:27017"
+#     volumes:
+#       - ifsuv-mongo-data:/data/db
+#     healthcheck:
+#       test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+#       interval: 10s
+#       timeout: 5s
+#       retries: 6
+#       start_period: 20s
+#     networks:
+#       - ifsuv-dev
+
+# NOTE: plus de MinIO — les fichiers (photos) sont stockés sur disque local par
+# l'API (STORAGE_DIR, défaut apps/api/var/storage). Ce compose ne sert plus qu'au
+# mail de test (Mailhog).
+
+services:
+  mailhog:
+    image: mailhog/mailhog:v1.0.1
+    container_name: ifsuv-mailhog
+    restart: unless-stopped
+    ports:
+      - "1025:1025"
+      - "8025:8025"
+    networks:
+      - ifsuv-dev
+
+networks:
+  ifsuv-dev:
+    driver: bridge

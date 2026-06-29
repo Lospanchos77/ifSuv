@@ -1,0 +1,211 @@
+/* Impression — fiche client A4 + étiquette technicien.
+   Couleurs alignées sur la fiche legacy (titres teal-blue, valeurs teal). */
+
+:root {
+  --fiche-title: #2f7d9c;
+  --fiche-value: #3a8f8f;
+  --fiche-ink: #1a1a1a;
+}
+
+/* ---------- Commun ---------- */
+.print-page {
+  background: #f1f3f5;
+  min-height: 100vh;
+  padding: 24px 0;
+}
+
+.print-actions {
+  max-width: 210mm;
+  margin: 0 auto 16px;
+  display: flex;
+  justify-content: space-between;
+  padding: 0 8px;
+}
+
+/* ---------- Fiche client A4 ---------- */
+.fiche-sheet {
+  width: 210mm;
+  min-height: 297mm;
+  margin: 0 auto;
+  padding: 14mm 16mm;
+  background: #fff;
+  color: var(--fiche-ink);
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.15);
+  font-family: 'Montserrat', system-ui, sans-serif;
+  box-sizing: border-box;
+}
+
+.fiche-header {
+  margin-bottom: 18px;
+}
+.fiche-logo {
+  height: 56px;
+  width: auto;
+  object-fit: contain;
+}
+.fiche-logo-text {
+  font-size: 26px;
+  font-weight: 800;
+  color: var(--fiche-title);
+}
+
+.fiche-title {
+  color: var(--fiche-title);
+  font-size: 22px;
+  font-weight: 800;
+  margin: 0 0 8px;
+  text-transform: uppercase;
+}
+.fiche-subtitle {
+  color: var(--fiche-title);
+  font-size: 15px;
+  font-weight: 700;
+  margin: 10px 0 2px;
+  text-transform: uppercase;
+}
+
+.fiche-top {
+  display: grid;
+  grid-template-columns: 175px 1fr 1fr;
+  gap: 18px;
+  align-items: start;
+}
+
+.fiche-qr-box {
+  background: #e8332f;
+  border-radius: 6px;
+  padding: 8px;
+  text-align: center;
+}
+.fiche-qr-label {
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  margin-bottom: 6px;
+}
+.fiche-qr-img {
+  width: 100%;
+  height: auto;
+  background: #fff;
+  display: block;
+  border-radius: 3px;
+}
+
+.fiche-intro p,
+.fiche-scan p {
+  font-size: 14px;
+  line-height: 1.5;
+  margin: 4px 0;
+}
+
+.fiche-sep {
+  border: none;
+  border-top: 2px dashed #777;
+  margin: 18px 0;
+}
+
+.fiche-cols {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 24px;
+}
+.fiche-cols p,
+.fiche-desc p {
+  font-size: 15px;
+  margin: 5px 0;
+  line-height: 1.45;
+}
+.fiche-label {
+  font-weight: 700;
+  color: var(--fiche-ink);
+}
+.fiche-value {
+  color: var(--fiche-value);
+}
+.fiche-pre {
+  white-space: pre-wrap;
+}
+
+.fiche-footer {
+  display: grid;
+  grid-template-columns: 1fr 230px;
+  gap: 24px;
+  align-items: start;
+}
+.fiche-address {
+  font-size: 16px;
+  line-height: 1.4;
+  white-space: pre-line;
+}
+.fiche-phone {
+  font-size: 13px;
+  margin-top: 4px;
+}
+.fiche-siret {
+  font-size: 11px;
+  color: #888;
+  margin-top: 2px;
+}
+.fiche-cachet {
+  border: 1px solid #999;
+  border-radius: 4px;
+  min-height: 120px;
+  padding: 6px 10px;
+  font-size: 12px;
+  color: #555;
+  text-align: right;
+}
+
+/* ---------- Étiquette technicien ---------- */
+.label-sheet {
+  width: 70mm;
+  margin: 0 auto;
+  padding: 6px 8px;
+  background: #fff;
+  color: #000;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.15);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-family: Georgia, 'Times New Roman', serif;
+  box-sizing: border-box;
+}
+.label-qr {
+  width: 90px;
+  height: 90px;
+  flex: 0 0 auto;
+  background: #fff;
+}
+.label-info {
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.35;
+  word-break: break-word;
+}
+.label-info a {
+  color: #1a0dab;
+}
+
+/* ---------- Impression ---------- */
+@media print {
+  .print-actions,
+  nav,
+  header[role='banner'] {
+    display: none !important;
+  }
+  .print-page {
+    background: #fff !important;
+    padding: 0 !important;
+  }
+  .fiche-sheet,
+  .label-sheet {
+    box-shadow: none !important;
+    margin: 0 !important;
+  }
+  /* Force l'impression des couleurs (boîte QR rouge, titres, QR noir). */
+  * {
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
+  }
+}

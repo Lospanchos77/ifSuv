@@ -1,0 +1,10 @@
+{
+  "extends": "@ifsuv/config/tsconfig/react.json",
+  "compilerOptions": {
+    "rootDir": "./src",
+    "noEmit": true,
+    "types": []
+  },
+  "include": ["src/**/*"],
+  "exclude": ["node_modules"]
+}

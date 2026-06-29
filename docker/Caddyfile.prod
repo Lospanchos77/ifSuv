@@ -1,0 +1,28 @@
+# Caddyfile prod IFSUV.
+# Variable {$DOMAIN} lue depuis l'env du container Caddy (passée par compose.prod.yml).
+# Let's Encrypt automatique au premier hit (port 443 doit être ouvert sur le VPS).
+
+{
+	email admin@{$DOMAIN}
+}
+
+{$DOMAIN} {
+	encode zstd gzip
+
+	# API : tout ce qui commence par /api/ est proxifié vers le container api sur :3001
+	handle /api/* {
+		reverse_proxy api:3001
+	}
+
+	# Tout le reste : SPA React (Caddy statique dans le container web)
+	handle {
+		reverse_proxy web:8080
+	}
+
+	log {
+		output file /data/access.log {
+			roll_size 10MiB
+			roll_keep 5
+		}
+	}
+}

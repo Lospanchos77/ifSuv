@@ -1,0 +1,48 @@
+# syntax=docker/dockerfile:1.7
+ARG NODE_VERSION=22.11
+ARG PNPM_VERSION=9.15.9
+
+# ---------- Stage 1: deps ----------
+FROM node:${NODE_VERSION}-alpine AS deps
+ARG PNPM_VERSION
+RUN corepack enable && corepack prepare pnpm@${PNPM_VERSION} --activate
+
+WORKDIR /repo
+
+COPY .npmrc package.json pnpm-lock.yaml pnpm-workspace.yaml turbo.json tsconfig.base.json ./
+COPY apps/api/package.json ./apps/api/
+COPY packages/shared/package.json ./packages/shared/
+COPY packages/config/package.json ./packages/config/
+
+RUN pnpm install --frozen-lockfile --filter @ifsuv/api... --filter @ifsuv/shared... --filter @ifsuv/config...
+
+# ---------- Stage 2: build ----------
+FROM node:${NODE_VERSION}-alpine AS build
+ARG PNPM_VERSION
+RUN corepack enable && corepack prepare pnpm@${PNPM_VERSION} --activate
+
+WORKDIR /repo
+COPY --from=deps /repo /repo
+COPY packages/config ./packages/config
+COPY packages/shared ./packages/shared
+COPY apps/api ./apps/api
+
+RUN pnpm --filter @ifsuv/shared build && pnpm --filter @ifsuv/api build
+RUN pnpm --filter @ifsuv/api deploy --prod /deploy
+
+# ---------- Stage 3: runner ----------
+FROM node:${NODE_VERSION}-alpine AS runner
+ENV NODE_ENV=production
+
+WORKDIR /app
+COPY --from=build --chown=node:node /deploy/node_modules ./node_modules
+COPY --from=build --chown=node:node /deploy/dist ./dist
+COPY --from=build --chown=node:node /deploy/package.json ./package.json
+
+# Point de montage du volume de stockage fichiers (photos). Créé avec l'ownership
+# `node` pour qu'un volume nommé monté ici hérite des droits d'écriture du user node.
+RUN mkdir -p /data/storage && chown -R node:node /data/storage
+
+USER node
+EXPOSE 3001
+CMD ["node", "dist/main.js"]

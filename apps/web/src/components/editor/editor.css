@@ -1,0 +1,94 @@
+/* Tiptap + RichTextDisplay shared styles */
+
+.ifsuv-tiptap .ProseMirror {
+  outline: none;
+  min-height: 180px;
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.ifsuv-tiptap .ProseMirror p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  color: var(--mantine-color-dimmed);
+  pointer-events: none;
+  height: 0;
+  float: left;
+}
+
+/* Shared between editor (in edit mode) and read-only display */
+.ifsuv-tiptap .ProseMirror,
+.ifsuv-richtext {
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.ifsuv-tiptap .ProseMirror h2,
+.ifsuv-richtext h2 {
+  font-size: 1.4em;
+  font-weight: 600;
+  margin: 0.8em 0 0.4em;
+}
+
+.ifsuv-tiptap .ProseMirror h3,
+.ifsuv-richtext h3 {
+  font-size: 1.2em;
+  font-weight: 600;
+  margin: 0.6em 0 0.3em;
+}
+
+.ifsuv-tiptap .ProseMirror p,
+.ifsuv-richtext p {
+  margin: 0.4em 0;
+}
+
+.ifsuv-tiptap .ProseMirror ul,
+.ifsuv-tiptap .ProseMirror ol,
+.ifsuv-richtext ul,
+.ifsuv-richtext ol {
+  padding-left: 1.6em;
+  margin: 0.4em 0;
+}
+
+.ifsuv-tiptap .ProseMirror blockquote,
+.ifsuv-richtext blockquote {
+  border-left: 3px solid var(--mantine-color-default-border);
+  padding-left: 1em;
+  margin: 0.6em 0;
+  color: var(--mantine-color-dimmed);
+}
+
+.ifsuv-tiptap .ProseMirror code,
+.ifsuv-richtext code {
+  background: light-dark(var(--mantine-color-gray-1), var(--mantine-color-dark-6));
+  padding: 0.1em 0.3em;
+  border-radius: 3px;
+  font-size: 0.9em;
+}
+
+.ifsuv-tiptap .ProseMirror pre,
+.ifsuv-richtext pre {
+  background: light-dark(var(--mantine-color-gray-1), var(--mantine-color-dark-6));
+  padding: 0.8em;
+  border-radius: 6px;
+  overflow-x: auto;
+  font-size: 0.9em;
+}
+
+.ifsuv-tiptap .ProseMirror a,
+.ifsuv-richtext a {
+  color: var(--mantine-color-indigo-5, #5c7cfa);
+  text-decoration: underline;
+}
+
+.ifsuv-tiptap .ProseMirror img,
+.ifsuv-richtext img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 6px;
+  margin: 0.5em 0;
+  display: block;
+}
+
+.ifsuv-tiptap .ProseMirror img.ProseMirror-selectednode {
+  outline: 2px solid var(--mantine-color-indigo-5, #5c7cfa);
+}

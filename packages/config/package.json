@@ -1,0 +1,15 @@
+{
+  "name": "@ifsuv/config",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Configurations partagées (tsconfig) pour le monorepo IFSUV.",
+  "type": "module",
+  "exports": {
+    "./tsconfig/base.json": "./tsconfig/base.json",
+    "./tsconfig/node.json": "./tsconfig/node.json",
+    "./tsconfig/react.json": "./tsconfig/react.json"
+  },
+  "files": [
+    "tsconfig"
+  ]
+}

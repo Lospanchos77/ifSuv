@@ -1,0 +1,39 @@
+# syntax=docker/dockerfile:1.7
+ARG NODE_VERSION=22.11
+ARG PNPM_VERSION=9.15.9
+
+# ---------- Stage 1: deps ----------
+FROM node:${NODE_VERSION}-alpine AS deps
+ARG PNPM_VERSION
+RUN corepack enable && corepack prepare pnpm@${PNPM_VERSION} --activate
+
+WORKDIR /repo
+
+COPY .npmrc package.json pnpm-lock.yaml pnpm-workspace.yaml turbo.json tsconfig.base.json ./
+COPY apps/web/package.json ./apps/web/
+COPY packages/shared/package.json ./packages/shared/
+COPY packages/config/package.json ./packages/config/
+COPY packages/ui/package.json ./packages/ui/
+
+RUN pnpm install --frozen-lockfile --filter @ifsuv/web... --filter @ifsuv/shared... --filter @ifsuv/config... --filter @ifsuv/ui...
+
+# ---------- Stage 2: build ----------
+FROM node:${NODE_VERSION}-alpine AS build
+ARG PNPM_VERSION
+RUN corepack enable && corepack prepare pnpm@${PNPM_VERSION} --activate
+
+WORKDIR /repo
+COPY --from=deps /repo /repo
+COPY packages/config ./packages/config
+COPY packages/shared ./packages/shared
+COPY packages/ui ./packages/ui
+COPY apps/web ./apps/web
+
+RUN pnpm --filter @ifsuv/shared build && pnpm --filter @ifsuv/web build
+
+# ---------- Stage 3: runner (Caddy static server) ----------
+FROM caddy:2.8-alpine AS runner
+COPY docker/Caddyfile.web /etc/caddy/Caddyfile
+COPY --from=build /repo/apps/web/dist /srv
+
+EXPOSE 8080
