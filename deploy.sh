@@ -242,12 +242,74 @@ healthcheck() {
     fi
 }
 
+# Pré-vol serveur (lecture seule) : Docker présent ?, port libre ?, RAM/disque,
+# collision docker0. Demande confirmation AVANT tout changement système (install Docker).
+preflight() {
+    log "Pré-vol côté serveur (lecture seule, aucune modification)…"
+    local report
+    report=$(remote "PORT=$(qq "$HTTPS_PORT") bash -s" <<'EOF'
+if command -v docker >/dev/null 2>&1; then echo "DOCKER=present"; else echo "DOCKER=absent"; fi
+if ss -ltnH 2>/dev/null | grep -qE "[:.]${PORT}[[:space:]]"; then echo "PORT=busy"; else echo "PORT=free"; fi
+echo "RAM_AVAIL_MB=$(free -m 2>/dev/null | awk '/^Mem:/{print $7}')"
+echo "DISK_AVAIL_MB=$(df -m --output=avail / 2>/dev/null | tail -1 | tr -d ' ')"
+if ip route 2>/dev/null | grep -qE '172\.1[78]\.'; then echo "DOCKER0=collision"; else echo "DOCKER0=clear"; fi
+EOF
+)
+    local d_docker d_port d_ram d_disk d_net
+    d_docker=$(echo "$report" | sed -n 's/^DOCKER=//p')
+    d_port=$(echo "$report" | sed -n 's/^PORT=//p')
+    d_ram=$(echo "$report" | sed -n 's/^RAM_AVAIL_MB=//p')
+    d_disk=$(echo "$report" | sed -n 's/^DISK_AVAIL_MB=//p')
+    d_net=$(echo "$report" | sed -n 's/^DOCKER0=//p')
+
+    echo ""
+    echo -e "  ${BOLD}Pré-vol serveur${NC}"
+    echo -e "    Docker installé        : ${d_docker:-?}"
+    echo -e "    Port ${HTTPS_PORT} (cible ${BIND_IP}) : ${d_port:-?}"
+    echo -e "    RAM disponible         : ${d_ram:-?} MB"
+    echo -e "    Disque / disponible    : ${d_disk:-?} MB"
+    echo -e "    Réseau 172.17/18       : ${d_net:-?}"
+    echo ""
+
+    if [ "$d_port" = "busy" ]; then
+        warn "Port ${HTTPS_PORT} déjà utilisé sur le serveur → risque de conflit avec un service existant."
+    fi
+    if [ -n "$d_ram" ] && [ "$d_ram" -lt 700 ] 2>/dev/null; then
+        warn "RAM faible (${d_ram} MB) : IFSUV ajoute un 2ᵉ MongoDB + le build d'images. Surveille l'OOM."
+    fi
+    if [ -n "$d_disk" ] && [ "$d_disk" -lt 4000 ] 2>/dev/null; then
+        warn "Disque faible (${d_disk} MB) : le build des images Docker peut être serré."
+    fi
+    if [ "$d_net" = "collision" ]; then
+        warn "Le réseau utilise 172.17/172.18 → collision possible avec le bridge docker0 (à vérifier)."
+    fi
+
+    if [ "$d_docker" = "absent" ]; then
+        echo ""
+        warn "Docker n'est PAS installé. L'init l'installera (curl get.docker.com | sh) :"
+        warn "  • modifie iptables (chaînes DOCKER/FORWARD) + active l'IP forwarding (niveau hôte)"
+        warn "  • tes services natifs (Nginx/Mongo/PM2) ne sont PAS touchés, mais c'est un changement système"
+        warn "  • recommandé : snapshot OVH du VPS avant de continuer"
+        read -r -p "$(echo -e "  ${YELLOW}Installer Docker et continuer l'init ? (o/n): ${NC}")" c
+        if [ "$c" != "o" ] && [ "$c" != "O" ]; then
+            echo "Annulé. Pour installer Docker à la main : curl -fsSL https://get.docker.com | sudo sh"
+            exit 0
+        fi
+    fi
+
+    if [ "$d_port" = "busy" ]; then
+        read -r -p "$(echo -e "  ${YELLOW}Port ${HTTPS_PORT} occupé — continuer quand même ? (o/n): ${NC}")" c2
+        if [ "$c2" != "o" ] && [ "$c2" != "O" ]; then echo "Annulé."; exit 0; fi
+    fi
+}
+
 # ----- Commandes -----
 
 cmd_init() {
     GIT_REPO="${IFSUV_GIT_REPO:-https://github.com/Lospanchos77/ifSuv.git}"
 
     prompt_config
+    preflight
 
     log "Init IFSUV sur ${VPS_USER}@${VPS_HOST}…"
 
