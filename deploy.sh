@@ -169,7 +169,7 @@ prompt_config() {
     [ "$TLS_MODE" = "letsencrypt" ] && echo -e "    DNS requis   : ${YELLOW}record A ${DOMAIN} → ${BIND_IP}${NC}"
     echo ""
     local c; read -r -p "$(echo -e "  ${YELLOW}Confirmer ? (o/n): ${NC}")" c
-    [ "$c" != "o" ] && [ "$c" != "O" ] && { echo "Annulé."; exit 0; }
+    if [ "$c" != "o" ] && [ "$c" != "O" ]; then echo "Annulé."; exit 0; fi
 }
 
 prompt_mailer() {
@@ -181,7 +181,7 @@ prompt_mailer() {
     if [ -n "$mu" ]; then
         setkv MAILER_USER "$mu"
         mp="$(ask_secret "MAILER_PASS" "")"
-        [ -n "$mp" ] && setkv MAILER_PASS "$mp"
+        if [ -n "$mp" ]; then setkv MAILER_PASS "$mp"; fi
     fi
 }
 
