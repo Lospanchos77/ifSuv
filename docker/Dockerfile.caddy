@@ -1,0 +1,24 @@
+# syntax=docker/dockerfile:1.7
+# Image Caddy custom — buildée avec un plugin DNS pour le challenge ACME DNS-01.
+#
+# Pourquoi : IFSUV cohabite sur un serveur où un Nginx natif occupe déjà 80/443.
+# On obtient donc le certificat Let's Encrypt via un champ TXT DNS (DNS-01), ce
+# qui ne requiert AUCUN port 80/443 public. Caddy peut alors écouter sur un port
+# non standard (8443) sur une IP dédiée, sans entrer en conflit avec Nginx.
+#
+# Le module DNS est paramétrable via le build-arg CADDY_DNS_MODULE :
+#   github.com/caddy-dns/ovh         (défaut)
+#   github.com/caddy-dns/cloudflare
+#   github.com/caddy-dns/ionos  ... etc.
+# Il doit correspondre au fournisseur DNS configuré dans le Caddyfile + .env.
+#
+# Version épinglée (build reproductible). Le wait de propagation DNS est forcé
+# côté Caddyfile (propagation_delay/timeout) pour fiabiliser DNS-01 sur sous-domaine.
+ARG CADDY_VERSION=2.8.4
+
+FROM caddy:${CADDY_VERSION}-builder AS builder
+ARG CADDY_DNS_MODULE=github.com/caddy-dns/ovh
+RUN xcaddy build --with ${CADDY_DNS_MODULE}
+
+FROM caddy:${CADDY_VERSION}-alpine
+COPY --from=builder /usr/bin/caddy /usr/bin/caddy

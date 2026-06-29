@@ -1,20 +1,41 @@
-# Caddyfile prod IFSUV.
-# Variable {$DOMAIN} lue depuis l'env du container Caddy (passée par compose.prod.yml).
-# Let's Encrypt automatique au premier hit (port 443 doit être ouvert sur le VPS).
+# Caddyfile prod IFSUV — cohabitation avec un Nginx natif (WEBX-CMS) sur le serveur.
+#
+# Caddy écoute en interne sur 443, publié sur IFSUV_BIND_IP:8443 (voir compose.prod.yml)
+# → aucun bind 80/443 sur l'hôte, zéro conflit avec le Nginx natif.
+#
+# Le MODE TLS est choisi au déploiement (deploy.sh init/config) et injecté en montant
+# le bon fichier sur /etc/caddy/tls.conf (variable CADDY_TLS_CONF) :
+#   - tls.le.conf       → Let's Encrypt DNS-01 OVH   (hôte = domaine)
+#   - tls.internal.conf → certificat interne Caddy    (hôte = IP)
+#
+# {$DOMAIN} = hôte public (IP ou domaine). Accès via l'URL explicite https://{$DOMAIN}:8443.
+# Pas de redirection HTTP→HTTPS (auto_https disable_redirects) : le listener :80 interne,
+# inutile sur un port non standard, est supprimé.
 
 {
-	email admin@{$DOMAIN}
+	auto_https disable_redirects
 }
 
 {$DOMAIN} {
 	encode zstd gzip
 
-	# API : tout ce qui commence par /api/ est proxifié vers le container api sur :3001
+	# Mode TLS injecté au déploiement (Let's Encrypt OVH ou CA interne Caddy).
+	import /etc/caddy/tls.conf
+
+	# --- Outil interne : restriction par IP source (optionnel) ----------------
+	# Docker publie le port en contournant UFW : le port est joignable depuis
+	# Internet (protégé par le login applicatif). Pour restreindre à ton réseau,
+	# décommente et adapte :
+	# @blocked not remote_ip 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16 <ton.ip.pub>/32
+	# respond @blocked "Forbidden" 403
+	# --------------------------------------------------------------------------
+
+	# API NestJS : tout /api/* → container api:3001
 	handle /api/* {
 		reverse_proxy api:3001
 	}
 
-	# Tout le reste : SPA React (Caddy statique dans le container web)
+	# Reste : SPA React servie par le container web (Caddy statique interne :8080)
 	handle {
 		reverse_proxy web:8080
 	}

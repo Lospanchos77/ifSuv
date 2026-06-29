@@ -1,8 +1,10 @@
 name: ifsuv-prod
 
-# Stack prod IFSUV — VPS OVH Ubuntu.
-# Lancée via deploy.sh (init/update). Variables d'env lues depuis ../.env.production
-# qui doit être présent à la racine du repo sur le VPS (jamais committed).
+# Stack prod IFSUV — VPS OVH Ubuntu, cohabite avec un Nginx natif (WEBX-CMS).
+# Lancée via deploy.sh (init/update), qui passe `--env-file ../.env.production` :
+# ce fichier sert à la fois d'env des containers (env_file / environment) ET à
+# l'interpolation des ${...} ci-dessous (DOMAIN, IFSUV_BIND_IP, mongo, OVH...).
+# Il doit être présent à la racine du repo sur le VPS (jamais committed).
 
 services:
   mongo:
@@ -55,16 +57,31 @@ services:
     # Pas de ports exposés : Caddy proxy via :8080 interne.
 
   caddy:
-    image: caddy:2.8-alpine
+    # Image custom : Caddy + plugin DNS (challenge ACME DNS-01). Voir Dockerfile.caddy.
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.caddy
+      args:
+        CADDY_DNS_MODULE: ${CADDY_DNS_MODULE:-github.com/caddy-dns/ovh}
     container_name: ifsuv-caddy
     restart: unless-stopped
     ports:
-      - "80:80"
-      - "443:443"
+      # Écoute UNIQUEMENT sur l'IP publique dédiée à IFSUV, port 8443 → 443 interne.
+      # Aucun bind sur 80/443 → zéro conflit avec le Nginx natif du serveur.
+      # Garde `:?` : si IFSUV_BIND_IP est vide, Compose échoue clairement au lieu
+      # de binder 0.0.0.0 (toutes interfaces) silencieusement.
+      - "${IFSUV_BIND_IP:?IFSUV_BIND_IP manquant dans .env.production (IP publique dédiée)}:${CADDY_HTTPS_PORT:-8443}:443"
     environment:
+      # Least-privilege : Caddy ne reçoit que le domaine + les creds DNS OVH.
       DOMAIN: ${DOMAIN}
+      OVH_ENDPOINT: ${OVH_ENDPOINT}
+      OVH_APPLICATION_KEY: ${OVH_APPLICATION_KEY}
+      OVH_APPLICATION_SECRET: ${OVH_APPLICATION_SECRET}
+      OVH_CONSUMER_KEY: ${OVH_CONSUMER_KEY}
     volumes:
       - ./Caddyfile.prod:/etc/caddy/Caddyfile:ro
+      # Mode TLS injecté au déploiement : tls.le.conf (Let's Encrypt) ou tls.internal.conf (IP).
+      - ./${CADDY_TLS_CONF:-tls.internal.conf}:/etc/caddy/tls.conf:ro
       - caddy-data:/data
       - caddy-config:/config
     depends_on:
