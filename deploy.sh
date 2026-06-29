@@ -1,64 +1,63 @@
 #!/usr/bin/env bash
-# IFSUV deploy script — VPS OVH Ubuntu, Docker Compose.
+# IFSUV — installeur self-contained, à lancer SUR LE SERVEUR (Ubuntu 22.04+).
 #
-# Usage:
-#   ./deploy.sh init <vps-host>        # première installation (interactif : hôte/IP/domaine/port/TLS)
-#   ./deploy.sh config <vps-host>      # changer hôte/IP/domaine/port/TLS (interactif, réajustable)
-#   ./deploy.sh update <vps-host>      # git pull + rebuild + up
-#   ./deploy.sh logs <vps-host> [svc]  # follow logs
-#   ./deploy.sh restart <vps-host>     # restart all services
-#   ./deploy.sh shell <vps-host>       # open ssh shell in /opt/ifsuv
-#   ./deploy.sh status <vps-host>      # docker compose ps
+# Première installation :
+#   git clone https://github.com/Lospanchos77/ifSuv.git /opt/ifsuv
+#   cd /opt/ifsuv
+#   sudo bash deploy.sh
 #
-# vps-user défaut: deploy
-# Variables d'env (optionnelles, pré-remplissent les prompts ; .env.deploy ou ~/.ifsuv-vps-config) :
-#   IFSUV_VPS_HOST, IFSUV_VPS_USER, IFSUV_GIT_REPO
-#   IFSUV_DOMAIN (hôte public IP ou domaine), IFSUV_BIND_IP, IFSUV_HTTPS_PORT, IFSUV_TLS_MODE
-#   OVH_ENDPOINT, OVH_APPLICATION_KEY, OVH_APPLICATION_SECRET, OVH_CONSUMER_KEY
+# Le script pose les questions PENDANT le déploiement (hôte IP/domaine, port, mode
+# TLS, creds OVH si Let's Encrypt, SMTP), installe Docker si besoin (avec
+# confirmation), génère .env.production, build et démarre. Cohabite avec un Nginx
+# natif déjà en place (n'occupe que IFSUV_BIND_IP:8443, jamais 80/443).
+#
+# Autres commandes :
+#   sudo bash deploy.sh config     # re-poser les questions et réappliquer
+#   sudo bash deploy.sh update     # git pull + rebuild + redémarrage
+#   sudo bash deploy.sh logs [svc] # logs (suivi)
+#   sudo bash deploy.sh restart    # redémarrage
+#   sudo bash deploy.sh status     # état des containers
 
 set -euo pipefail
 
-# ----- Constantes -----
-REMOTE_DIR="/opt/ifsuv"
-COMPOSE_FILE="docker/compose.prod.yml"
-ENV_FILE=".env.production"
-LOCAL_SECRETS="${HOME}/.ifsuv-vps-config"
+REPO_DIR="$(cd "$(dirname "$0")" && pwd)"
+COMPOSE_FILE="${REPO_DIR}/docker/compose.prod.yml"
+ENV_FILE="${REPO_DIR}/.env.production"
+TEMPLATE="${REPO_DIR}/.env.production.template"
 
-# Couleurs
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-RED='\033[0;31m'
-BLUE='\033[0;34m'
-BOLD='\033[1m'
-NC='\033[0m'
-
-# ----- Charger config : valeurs sauvées à l'init (~/.ifsuv-vps-config) PUIS .env.deploy
-#       (qui a priorité). Permet à config/update/status de réutiliser les valeurs. -----
-# shellcheck disable=SC1090
-[ -f "${LOCAL_SECRETS}" ] && source "${LOCAL_SECRETS}"
-if [ -f "$(dirname "$0")/.env.deploy" ]; then
-    # shellcheck disable=SC1091
-    source "$(dirname "$0")/.env.deploy"
-fi
-
-log() { echo -e "${BLUE}[deploy]${NC} $*"; }
-ok() { echo -e "${GREEN}[deploy]${NC} $*"; }
-warn() { echo -e "${YELLOW}[deploy]${NC} $*"; }
-err() { echo -e "${RED}[deploy]${NC} $*" >&2; }
+GREEN='\033[0;32m'; YELLOW='\033[1;33m'; RED='\033[0;31m'; BLUE='\033[0;34m'; BOLD='\033[1m'; NC='\033[0m'
+log()    { echo -e "${BLUE}[ifsuv]${NC} $*"; }
+ok()     { echo -e "${GREEN}[ifsuv]${NC} $*"; }
+warn()   { echo -e "${YELLOW}[ifsuv]${NC} $*"; }
+err()    { echo -e "${RED}[ifsuv]${NC} $*" >&2; }
+header() { echo ""; echo -e "${BOLD}${BLUE}═══ $* ═══${NC}"; }
+step()   { echo -e "  ${GREEN}✓${NC} $*"; }
 
 usage() {
-    grep -E '^#   \./deploy\.sh|^# Usage' "$0" | sed 's/^# \?//'
+    cat >&2 <<'USAGE'
+IFSUV — à lancer sur le serveur, en root :
+  sudo bash deploy.sh            Install / reconfiguration interactive
+  sudo bash deploy.sh config     Re-poser les questions et réappliquer
+  sudo bash deploy.sh update     git pull + rebuild + redémarrage
+  sudo bash deploy.sh logs [svc] Logs (suivi live)
+  sudo bash deploy.sh restart    Redémarrage
+  sudo bash deploy.sh status     État des containers
+USAGE
     exit 1
 }
 
-# ----- Parse args -----
-CMD="${1:-}"
-[ -z "$CMD" ] && usage
+require_root() {
+    if [ "$(id -u)" -ne 0 ]; then
+        err "À lancer en root : sudo bash deploy.sh ${CMD}"
+        exit 1
+    fi
+}
 
-VPS_HOST="${2:-${IFSUV_VPS_HOST:-}}"
-VPS_USER="${IFSUV_VPS_USER:-deploy}"
+# docker compose wrapper — exécuté depuis le repo (résolution non ambiguë des
+# chemins relatifs du compose : ./Caddyfile.prod, context: .., env_file: ../...).
+dc() { ( cd "$REPO_DIR" && docker compose -f docker/compose.prod.yml --env-file .env.production "$@" ); }
 
-# Config déploiement (pré-remplie par env / .env.deploy / ~/.ifsuv-vps-config) :
+# ----- Config (globals, pré-remplis par env puis par le .env.production existant) -----
 DOMAIN="${IFSUV_DOMAIN:-}"
 BIND_IP="${IFSUV_BIND_IP:-}"
 HTTPS_PORT="${IFSUV_HTTPS_PORT:-8443}"
@@ -69,26 +68,8 @@ OVH_APPLICATION_KEY="${OVH_APPLICATION_KEY:-}"
 OVH_APPLICATION_SECRET="${OVH_APPLICATION_SECRET:-}"
 OVH_CONSUMER_KEY="${OVH_CONSUMER_KEY:-}"
 
-if [ -z "$VPS_HOST" ]; then
-    err "VPS host requis (arg ou IFSUV_VPS_HOST)"
-    exit 1
-fi
-
-SSH="ssh -o StrictHostKeyChecking=accept-new ${VPS_USER}@${VPS_HOST}"
-
-# ----- Helpers SSH -----
-remote() {
-    # shellcheck disable=SC2029
-    $SSH "$@"
-}
-
-remote_compose() {
-    # --env-file : interpolation des ${...} du compose (DOMAIN, IFSUV_BIND_IP, mongo, OVH, CADDY_TLS_CONF...).
-    remote "cd ${REMOTE_DIR} && docker compose -f ${COMPOSE_FILE} --env-file ${ENV_FILE} $*"
-}
-
-# ----- Helpers prompts interactifs -----
-ask() { # prompt default  -> echoes value (default si vide)
+# ----- Helpers -----
+ask() { # prompt [default] -> echoes value (default si vide)
     local prompt="$1" def="${2:-}" ans
     if [ -n "$def" ]; then
         read -r -p "$(echo -e "  ${YELLOW}${prompt}${NC} [${def}]: ")" ans
@@ -98,39 +79,53 @@ ask() { # prompt default  -> echoes value (default si vide)
         echo "$ans"
     fi
 }
-
-ask_secret() { # prompt current -> echoes value (garde l'actuel si vide)
+ask_secret() { # prompt [current] -> echoes value (garde l'actuel si vide)
     local prompt="$1" cur="${2:-}" ans hint=""
     [ -n "$cur" ] && hint=" [garder l'actuel]"
     read -r -s -p "$(echo -e "  ${YELLOW}${prompt}${NC}${hint}: ")" ans
     echo "" >&2
     echo "${ans:-$cur}"
 }
-
 is_ip() { echo "$1" | grep -qE '^[0-9]{1,3}(\.[0-9]{1,3}){3}$'; }
 
-# Recharge les valeurs de config courantes depuis le .env.production distant (défauts des prompts).
-load_remote_config() {
-    local kv
-    kv=$(remote "cd ${REMOTE_DIR} && grep -E '^(DOMAIN|IFSUV_BIND_IP|CADDY_HTTPS_PORT|CADDY_TLS_MODE|OVH_ENDPOINT|OVH_APPLICATION_KEY|OVH_APPLICATION_SECRET|OVH_CONSUMER_KEY)=' ${ENV_FILE}") \
-        || { err "Impossible de lire ${REMOTE_DIR}/${ENV_FILE} (lance d'abord: ./deploy.sh init ${VPS_HOST})"; exit 1; }
-    local k v
-    while IFS='=' read -r k v; do
-        case "$k" in
-            DOMAIN) DOMAIN="${DOMAIN:-$v}" ;;
-            IFSUV_BIND_IP) BIND_IP="${BIND_IP:-$v}" ;;
-            CADDY_HTTPS_PORT) HTTPS_PORT="${HTTPS_PORT:-$v}" ;;
-            CADDY_TLS_MODE) TLS_MODE="${TLS_MODE:-$v}" ;;
-            OVH_ENDPOINT) OVH_ENDPOINT="${OVH_ENDPOINT:-$v}" ;;
-            OVH_APPLICATION_KEY) OVH_APPLICATION_KEY="${OVH_APPLICATION_KEY:-$v}" ;;
-            OVH_APPLICATION_SECRET) OVH_APPLICATION_SECRET="${OVH_APPLICATION_SECRET:-$v}" ;;
-            OVH_CONSUMER_KEY) OVH_CONSUMER_KEY="${OVH_CONSUMER_KEY:-$v}" ;;
-        esac
-    done <<< "$kv"
+# IP primaire du serveur (proposée par défaut pour l'hôte et le bind).
+detect_ip() {
+    local ip
+    ip=$(ip route get 1.1.1.1 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="src"){print $(i+1); exit}}')
+    [ -z "$ip" ] && ip=$(hostname -I 2>/dev/null | awk '{print $1}')
+    echo "$ip"
 }
 
-# Prompts : hôte (IP/domaine), mode TLS, bind IP, port, creds OVH si Let's Encrypt.
+# Lit une clé du .env.production (vide si absent/placeholder).
+get_env() {
+    [ -f "$ENV_FILE" ] || { echo ""; return 0; }
+    local v
+    v=$(grep -E "^$1=" "$ENV_FILE" | head -1 | cut -d= -f2- || true)
+    # Vide uniquement les placeholders EXACTS du template (pas de glob sous-chaîne,
+    # qui effacerait un hôte légitime contenant la chaîne).
+    case "$v" in CHANGE_ME|CHANGE_ME_IP|CHANGE_ME_USER|CHANGE_ME_PASS|ifsuv.example.com) v="" ;; esac
+    echo "$v"
+}
+# Écrit/MAJ une clé (delete+append : aucune valeur ne passe par la RHS sed).
+setkv() {
+    sed -i "/^$1=/d" "$ENV_FILE"
+    printf '%s=%s\n' "$1" "$2" >> "$ENV_FILE"
+}
+
+# ----- Prompts -----
 prompt_config() {
+    # Défauts : valeur déjà fournie (env) sinon .env.production existant sinon IP du serveur.
+    [ -z "$DOMAIN" ] && DOMAIN="$(get_env DOMAIN)"
+    [ -z "$DOMAIN" ] && DOMAIN="$(detect_ip)"
+    [ -z "$BIND_IP" ] && BIND_IP="$(get_env IFSUV_BIND_IP)"
+    [ -z "$BIND_IP" ] && BIND_IP="$(detect_ip)"
+    [ -z "$TLS_MODE" ] && TLS_MODE="$(get_env CADDY_TLS_MODE)"
+    local ep; ep="$(get_env CADDY_HTTPS_PORT)"; [ -n "$ep" ] && HTTPS_PORT="$ep"
+    [ -z "$OVH_ENDPOINT" ] && OVH_ENDPOINT="$(get_env OVH_ENDPOINT)"
+    [ -z "$OVH_APPLICATION_KEY" ] && OVH_APPLICATION_KEY="$(get_env OVH_APPLICATION_KEY)"
+    [ -z "$OVH_APPLICATION_SECRET" ] && OVH_APPLICATION_SECRET="$(get_env OVH_APPLICATION_SECRET)"
+    [ -z "$OVH_CONSUMER_KEY" ] && OVH_CONSUMER_KEY="$(get_env OVH_CONSUMER_KEY)"
+
     echo ""
     echo -e "  ${BOLD}Configuration de l'accès IFSUV${NC}  (Entrée = garder la valeur entre crochets)"
     echo ""
@@ -139,15 +134,15 @@ prompt_config() {
     [ -z "$DOMAIN" ] && { err "Hôte requis"; exit 1; }
 
     if is_ip "$DOMAIN"; then
-        warn "IP détectée → Let's Encrypt impossible (pas de certificat pour une IP nue)."
-        warn "TLS = certificat interne auto-signé Caddy (avertissement navigateur jusqu'à l'import de la racine)."
+        warn "IP détectée → Let's Encrypt impossible (pas de cert pour une IP nue)."
+        warn "TLS = certificat interne auto-signé Caddy (avertissement navigateur jusqu'à import de la racine)."
         TLS_MODE="internal"
         [ -z "$BIND_IP" ] && BIND_IP="$DOMAIN"
     else
         TLS_MODE=$(ask "Mode TLS [letsencrypt/internal]" "${TLS_MODE:-letsencrypt}")
     fi
 
-    BIND_IP=$(ask "IP réseau du serveur sur laquelle écouter (bind Docker)" "${BIND_IP:-$DOMAIN}")
+    BIND_IP=$(ask "IP du serveur sur laquelle écouter (bind)" "${BIND_IP:-$DOMAIN}")
     is_ip "$BIND_IP" || { err "Le bind doit être une IP (reçu: $BIND_IP)"; exit 1; }
 
     HTTPS_PORT=$(ask "Port HTTPS" "${HTTPS_PORT:-8443}")
@@ -155,7 +150,7 @@ prompt_config() {
     if [ "$TLS_MODE" = "letsencrypt" ]; then
         TLS_CONF="tls.le.conf"
         echo ""
-        log "Let's Encrypt DNS-01 OVH — token API (créer sur https://api.ovh.com/createToken/, droits zone DNS)"
+        log "Let's Encrypt DNS-01 OVH — token API (https://api.ovh.com/createToken/, droits zone DNS)"
         OVH_ENDPOINT=$(ask "OVH endpoint" "${OVH_ENDPOINT:-ovh-eu}")
         OVH_APPLICATION_KEY=$(ask_secret "OVH application key" "$OVH_APPLICATION_KEY")
         OVH_APPLICATION_SECRET=$(ask_secret "OVH application secret" "$OVH_APPLICATION_SECRET")
@@ -167,301 +162,208 @@ prompt_config() {
 
     echo ""
     echo -e "  ${BOLD}Récapitulatif${NC}"
-    echo -e "    Hôte public    : ${GREEN}${DOMAIN}${NC}"
-    echo -e "    Bind / port    : ${GREEN}${BIND_IP}:${HTTPS_PORT}${NC}"
-    echo -e "    Mode TLS       : ${GREEN}${TLS_MODE}${NC}"
-    echo -e "    URL d'accès    : ${GREEN}https://${DOMAIN}:${HTTPS_PORT}${NC}"
-    [ "$TLS_MODE" = "letsencrypt" ] && echo -e "    Pré-requis DNS : ${YELLOW}record A ${DOMAIN} → ${BIND_IP}${NC}"
+    echo -e "    Hôte public  : ${GREEN}${DOMAIN}${NC}"
+    echo -e "    Bind / port  : ${GREEN}${BIND_IP}:${HTTPS_PORT}${NC}"
+    echo -e "    Mode TLS     : ${GREEN}${TLS_MODE}${NC}"
+    echo -e "    URL d'accès  : ${GREEN}https://${DOMAIN}:${HTTPS_PORT}${NC}"
+    [ "$TLS_MODE" = "letsencrypt" ] && echo -e "    DNS requis   : ${YELLOW}record A ${DOMAIN} → ${BIND_IP}${NC}"
     echo ""
-    read -r -p "$(echo -e "  ${YELLOW}Confirmer ? (o/n): ${NC}")" c
+    local c; read -r -p "$(echo -e "  ${YELLOW}Confirmer ? (o/n): ${NC}")" c
     [ "$c" != "o" ] && [ "$c" != "O" ] && { echo "Annulé."; exit 0; }
 }
 
-# Quoting sûr pour transporter une valeur vers le shell distant (espaces, quotes, &, \, *).
-qq() { printf '%q' "${1:-}"; }
-
-# Écrit/MAJ les clés de config dans le .env.production distant (idempotent).
-# Les valeurs passent en variables d'env quotées (%q) — pas en args positionnels
-# reconcaténés par SSH — et setkv échappe la RHS sed (& | \).
-apply_config_remote() {
-    log "Mise à jour de ${REMOTE_DIR}/${ENV_FILE}…"
-    local url="https://${DOMAIN}:${HTTPS_PORT}" envp
-    envp="REMOTE_DIR=$(qq "$REMOTE_DIR") F=$(qq "$ENV_FILE")"
-    envp="$envp DOMAIN=$(qq "$DOMAIN") BIND_IP=$(qq "$BIND_IP") PORT=$(qq "$HTTPS_PORT")"
-    envp="$envp TLS_MODE=$(qq "$TLS_MODE") TLS_CONF=$(qq "$TLS_CONF") URL=$(qq "$url")"
-    envp="$envp OVH_ENDPOINT=$(qq "$OVH_ENDPOINT") OVH_AK=$(qq "$OVH_APPLICATION_KEY")"
-    envp="$envp OVH_AS=$(qq "$OVH_APPLICATION_SECRET") OVH_CK=$(qq "$OVH_CONSUMER_KEY")"
-    remote "$envp bash -s" <<'EOF'
-set -e
-cd "$REMOTE_DIR"
-setkv() {
-    # Supprime l'ancienne ligne (seul le KEY contrôlé passe par sed) puis ré-ajoute
-    # la valeur via printf : aucune valeur ne touche jamais la RHS de sed (& | \ sûrs).
-    local key="$1" val="$2"
-    sed -i "/^${key}=/d" "$F"
-    printf '%s=%s\n' "$key" "$val" >> "$F"
-}
-setkv DOMAIN "$DOMAIN"
-setkv IFSUV_BIND_IP "$BIND_IP"
-setkv CADDY_HTTPS_PORT "$PORT"
-setkv CADDY_TLS_MODE "$TLS_MODE"
-setkv CADDY_TLS_CONF "$TLS_CONF"
-setkv CORS_ORIGIN "$URL"
-setkv APP_URL "$URL"
-if [ "$TLS_MODE" = "letsencrypt" ]; then
-    setkv OVH_ENDPOINT "$OVH_ENDPOINT"
-    setkv OVH_APPLICATION_KEY "$OVH_AK"
-    setkv OVH_APPLICATION_SECRET "$OVH_AS"
-    setkv OVH_CONSUMER_KEY "$OVH_CK"
-fi
-chmod 600 "$F"
-echo "[remote] ${F} : DOMAIN=$DOMAIN bind=$BIND_IP:$PORT tls=$TLS_MODE"
-EOF
-}
-
-# Vérifie Docker accessible côté VPS (groupe docker actif).
-check_docker() {
-    if ! remote "docker info" >/dev/null 2>&1; then
-        err "Docker non accessible pour ${VPS_USER}@${VPS_HOST}."
-        err "Si Docker vient d'être installé, le groupe 'docker' n'est actif qu'à la prochaine session SSH."
-        err "Reconnecte ${VPS_USER} (ou ajoute-le au groupe docker), puis relance."
-        exit 1
-    fi
-}
-
-healthcheck() {
-    if [ -n "$DOMAIN" ] && [ -n "$BIND_IP" ]; then
-        # -k : en mode internal le cert est auto-signé. --resolve : tape l'IP:port via le nom d'hôte.
-        if remote "curl -fsSk --resolve ${DOMAIN}:${HTTPS_PORT}:${BIND_IP} https://${DOMAIN}:${HTTPS_PORT}/api/v1/health" >/dev/null 2>&1; then
-            ok "API healthy — https://${DOMAIN}:${HTTPS_PORT}"
-        else
-            warn "Healthcheck KO (démarrage en cours, ou cert pas encore émis)."
-        fi
-    else
-        warn "DOMAIN/BIND_IP inconnus — healthcheck sauté. Vérifie : ./deploy.sh status ${VPS_HOST}"
-    fi
-}
-
-# Pré-vol serveur (lecture seule) : Docker présent ?, port libre ?, RAM/disque,
-# collision docker0. Demande confirmation AVANT tout changement système (install Docker).
-preflight() {
-    log "Pré-vol côté serveur (lecture seule, aucune modification)…"
-    local report
-    report=$(remote "PORT=$(qq "$HTTPS_PORT") bash -s" <<'EOF'
-if command -v docker >/dev/null 2>&1; then echo "DOCKER=present"; else echo "DOCKER=absent"; fi
-if ss -ltnH 2>/dev/null | grep -qE "[:.]${PORT}[[:space:]]"; then echo "PORT=busy"; else echo "PORT=free"; fi
-echo "RAM_AVAIL_MB=$(free -m 2>/dev/null | awk '/^Mem:/{print $7}')"
-echo "DISK_AVAIL_MB=$(df -m --output=avail / 2>/dev/null | tail -1 | tr -d ' ')"
-if ip route 2>/dev/null | grep -qE '172\.1[78]\.'; then echo "DOCKER0=collision"; else echo "DOCKER0=clear"; fi
-EOF
-)
-    local d_docker d_port d_ram d_disk d_net
-    d_docker=$(echo "$report" | sed -n 's/^DOCKER=//p')
-    d_port=$(echo "$report" | sed -n 's/^PORT=//p')
-    d_ram=$(echo "$report" | sed -n 's/^RAM_AVAIL_MB=//p')
-    d_disk=$(echo "$report" | sed -n 's/^DISK_AVAIL_MB=//p')
-    d_net=$(echo "$report" | sed -n 's/^DOCKER0=//p')
-
+prompt_mailer() {
     echo ""
-    echo -e "  ${BOLD}Pré-vol serveur${NC}"
-    echo -e "    Docker installé        : ${d_docker:-?}"
-    echo -e "    Port ${HTTPS_PORT} (cible ${BIND_IP}) : ${d_port:-?}"
-    echo -e "    RAM disponible         : ${d_ram:-?} MB"
-    echo -e "    Disque / disponible    : ${d_disk:-?} MB"
-    echo -e "    Réseau 172.17/18       : ${d_net:-?}"
-    echo ""
+    log "SMTP IONOS (emails de rapport / reset mot de passe). Entrée pour configurer plus tard."
+    local cur_u mu mp
+    cur_u="$(get_env MAILER_USER)"
+    mu="$(ask "MAILER_USER" "$cur_u")"
+    if [ -n "$mu" ]; then
+        setkv MAILER_USER "$mu"
+        mp="$(ask_secret "MAILER_PASS" "")"
+        [ -n "$mp" ] && setkv MAILER_PASS "$mp"
+    fi
+}
 
-    if [ "$d_port" = "busy" ]; then
-        warn "Port ${HTTPS_PORT} déjà utilisé sur le serveur → risque de conflit avec un service existant."
-    fi
-    if [ -n "$d_ram" ] && [ "$d_ram" -lt 700 ] 2>/dev/null; then
-        warn "RAM faible (${d_ram} MB) : IFSUV ajoute un 2ᵉ MongoDB + le build d'images. Surveille l'OOM."
-    fi
-    if [ -n "$d_disk" ] && [ "$d_disk" -lt 4000 ] 2>/dev/null; then
-        warn "Disque faible (${d_disk} MB) : le build des images Docker peut être serré."
-    fi
-    if [ "$d_net" = "collision" ]; then
-        warn "Le réseau utilise 172.17/172.18 → collision possible avec le bridge docker0 (à vérifier)."
-    fi
+# ----- Pré-vol + installation Docker -----
+preflight_and_docker() {
+    log "Pré-vol serveur (lecture seule)…"
+    local d_port d_ram d_disk d_net
+    if ss -ltnH 2>/dev/null | grep -qE "[:.]${HTTPS_PORT}[[:space:]]"; then d_port=busy; else d_port=free; fi
+    d_ram=$(free -m 2>/dev/null | awk '/^Mem:/{print $7}')
+    d_disk=$(df -m --output=avail / 2>/dev/null | tail -1 | tr -d ' ')
+    if ip route 2>/dev/null | grep -qE '172\.1[78]\.'; then d_net=collision; else d_net=clear; fi
 
-    if [ "$d_docker" = "absent" ]; then
+    echo -e "    Port ${HTTPS_PORT} : ${d_port}   RAM dispo : ${d_ram:-?} MB   Disque / : ${d_disk:-?} MB   172.17/18 : ${d_net}"
+    if [ "$d_port" = "busy" ]; then warn "Port ${HTTPS_PORT} déjà utilisé → risque de conflit avec un service existant."; fi
+    if [ -n "$d_ram" ] && [ "$d_ram" -lt 700 ] 2>/dev/null; then warn "RAM faible (${d_ram} MB) : IFSUV ajoute un 2ᵉ MongoDB + build d'images, surveille l'OOM."; fi
+    if [ -n "$d_disk" ] && [ "$d_disk" -lt 4000 ] 2>/dev/null; then warn "Disque faible (${d_disk} MB) : le build Docker peut être serré."; fi
+    if [ "$d_net" = "collision" ]; then warn "Le réseau utilise 172.17/172.18 → collision possible avec le bridge docker0."; fi
+
+    if ! command -v docker >/dev/null 2>&1; then
         echo ""
-        warn "Docker n'est PAS installé. L'init l'installera (curl get.docker.com | sh) :"
-        warn "  • modifie iptables (chaînes DOCKER/FORWARD) + active l'IP forwarding (niveau hôte)"
-        warn "  • tes services natifs (Nginx/Mongo/PM2) ne sont PAS touchés, mais c'est un changement système"
-        warn "  • recommandé : snapshot OVH du VPS avant de continuer"
-        read -r -p "$(echo -e "  ${YELLOW}Installer Docker et continuer l'init ? (o/n): ${NC}")" c
-        if [ "$c" != "o" ] && [ "$c" != "O" ]; then
-            echo "Annulé. Pour installer Docker à la main : curl -fsSL https://get.docker.com | sudo sh"
-            exit 0
-        fi
+        warn "Docker n'est PAS installé. L'installation modifie iptables (chaînes DOCKER/FORWARD)"
+        warn "et active l'IP forwarding au niveau hôte. Tes services natifs (Nginx/Mongo/PM2) ne"
+        warn "sont PAS touchés. Snapshot VPS recommandé avant de continuer."
+        local c; read -r -p "$(echo -e "  ${YELLOW}Installer Docker maintenant ? (o/n): ${NC}")" c
+        if [ "$c" != "o" ] && [ "$c" != "O" ]; then echo "Annulé."; exit 0; fi
+        log "Installation de Docker…"
+        curl -fsSL https://get.docker.com | sh
     fi
+    command -v git >/dev/null 2>&1 || { log "Installation de git…"; apt-get update -qq && apt-get install -y -qq git; }
 
     if [ "$d_port" = "busy" ]; then
-        read -r -p "$(echo -e "  ${YELLOW}Port ${HTTPS_PORT} occupé — continuer quand même ? (o/n): ${NC}")" c2
+        local c2; read -r -p "$(echo -e "  ${YELLOW}Port ${HTTPS_PORT} occupé — continuer quand même ? (o/n): ${NC}")" c2
         if [ "$c2" != "o" ] && [ "$c2" != "O" ]; then echo "Annulé."; exit 0; fi
     fi
 }
 
+# Crée .env.production à partir du template + creds Mongo aléatoires (1ère fois).
+ensure_env() {
+    [ -f "$ENV_FILE" ] && return 0
+    log "Création de ${ENV_FILE} (creds Mongo générés)…"
+    cp "$TEMPLATE" "$ENV_FILE"
+    local mu mp
+    mu="ifsuv$(openssl rand -hex 4)"
+    mp="$(openssl rand -base64 32 | tr -d '/+=' | cut -c1-32)"
+    setkv MONGO_INITDB_ROOT_USERNAME "$mu"
+    setkv MONGO_INITDB_ROOT_PASSWORD "$mp"
+    setkv MONGO_URI "mongodb://${mu}:${mp}@mongo:27017/ifsuv_prod?authSource=admin"
+    chmod 600 "$ENV_FILE"
+    step "Identifiants MongoDB générés"
+}
+
+apply_config() {
+    local url="https://${DOMAIN}:${HTTPS_PORT}"
+    setkv DOMAIN "$DOMAIN"
+    setkv IFSUV_BIND_IP "$BIND_IP"
+    setkv CADDY_HTTPS_PORT "$HTTPS_PORT"
+    setkv CADDY_TLS_MODE "$TLS_MODE"
+    setkv CADDY_TLS_CONF "$TLS_CONF"
+    setkv CORS_ORIGIN "$url"
+    setkv APP_URL "$url"
+    if [ "$TLS_MODE" = "letsencrypt" ]; then
+        setkv OVH_ENDPOINT "$OVH_ENDPOINT"
+        setkv OVH_APPLICATION_KEY "$OVH_APPLICATION_KEY"
+        setkv OVH_APPLICATION_SECRET "$OVH_APPLICATION_SECRET"
+        setkv OVH_CONSUMER_KEY "$OVH_CONSUMER_KEY"
+    else
+        # Mode internal : purge les éventuels secrets OVH périmés (sans warning compose).
+        setkv OVH_APPLICATION_KEY ""
+        setkv OVH_APPLICATION_SECRET ""
+        setkv OVH_CONSUMER_KEY ""
+    fi
+    chmod 600 "$ENV_FILE"
+    step "Configuration écrite dans .env.production"
+}
+
+healthcheck() {
+    [ -n "$DOMAIN" ] && [ -n "$BIND_IP" ] || return 0
+    if curl -fsSk --resolve "${DOMAIN}:${HTTPS_PORT}:${BIND_IP}" "https://${DOMAIN}:${HTTPS_PORT}/api/v1/health" >/dev/null 2>&1; then
+        ok "API healthy — https://${DOMAIN}:${HTTPS_PORT}"
+    else
+        warn "Healthcheck KO (démarrage en cours, ou cert pas encore émis). Voir : sudo bash deploy.sh logs caddy"
+    fi
+}
+
+summary() {
+    echo ""
+    echo -e "${GREEN}╔════════════════════════════════════════════════╗${NC}"
+    echo -e "${GREEN}║          DÉPLOIEMENT TERMINÉ AVEC SUCCÈS        ║${NC}"
+    echo -e "${GREEN}╚════════════════════════════════════════════════╝${NC}"
+    echo ""
+    echo -e "  ${BOLD}Accès${NC}      : ${GREEN}https://${DOMAIN}:${HTTPS_PORT}${NC}"
+    echo -e "  ${BOLD}Bind${NC}       : ${BIND_IP}:${HTTPS_PORT}"
+    echo -e "  ${BOLD}Mode TLS${NC}   : ${TLS_MODE}"
+    if [ "$TLS_MODE" = "letsencrypt" ]; then
+        echo -e "  ${BOLD}DNS requis${NC} : ${YELLOW}record A ${DOMAIN} → ${BIND_IP}${NC} (le cert s'émet ensuite)"
+    else
+        echo -e "  ${BOLD}Note${NC}       : certificat auto-signé (mode IP) → avertissement navigateur normal"
+    fi
+    echo -e "  ${BOLD}Config${NC}     : ${ENV_FILE}"
+    echo ""
+    echo -e "  ${BOLD}Commandes utiles${NC}"
+    echo -e "    ${BLUE}sudo bash deploy.sh status${NC}       état des containers"
+    echo -e "    ${BLUE}sudo bash deploy.sh logs caddy${NC}   logs (émission du cert TLS)"
+    echo -e "    ${BLUE}sudo bash deploy.sh config${NC}       changer hôte / port / TLS"
+    echo -e "    ${BLUE}sudo bash deploy.sh update${NC}       git pull + rebuild + redémarrage"
+    echo ""
+}
+
 # ----- Commandes -----
+cmd_install() {
+    require_root
+    [ -f "$TEMPLATE" ] || { err "Template introuvable (${TEMPLATE}). Lance ce script depuis le repo cloné (/opt/ifsuv)."; exit 1; }
 
-cmd_init() {
-    GIT_REPO="${IFSUV_GIT_REPO:-https://github.com/Lospanchos77/ifSuv.git}"
+    echo ""
+    echo -e "${BOLD}${GREEN}╔════════════════════════════════════════════════╗${NC}"
+    echo -e "${BOLD}${GREEN}║          IFSUV — Déploiement (Docker)           ║${NC}"
+    echo -e "${BOLD}${GREEN}╚════════════════════════════════════════════════╝${NC}"
 
+    header "1/6 — Configuration"
     prompt_config
-    preflight
 
-    log "Init IFSUV sur ${VPS_USER}@${VPS_HOST}…"
+    header "2/6 — Pré-vol serveur & Docker"
+    preflight_and_docker
 
-    # 1. Install Docker + git si absents
-    log "Vérification Docker / git côté VPS…"
-    remote bash -s <<'EOF'
-set -e
-if ! command -v docker >/dev/null 2>&1; then
-    echo "[remote] Installing Docker..."
-    curl -fsSL https://get.docker.com | sh
-    usermod -aG docker "$USER" || true
-fi
-if ! command -v git >/dev/null 2>&1; then
-    echo "[remote] Installing git..."
-    apt-get update -qq && apt-get install -y -qq git
-fi
-EOF
+    header "3/6 — Fichier d'environnement"
+    ensure_env
+    apply_config
+    prompt_mailer
 
-    # 2. Clone le repo si absent
-    log "Clone du repo dans ${REMOTE_DIR}…"
-    remote bash -s "$GIT_REPO" "$REMOTE_DIR" <<'EOF'
-set -e
-GIT_REPO="$1"
-REMOTE_DIR="$2"
-if [ ! -d "$REMOTE_DIR/.git" ]; then
-    sudo mkdir -p "$REMOTE_DIR"
-    sudo chown "$USER:$USER" "$REMOTE_DIR"
-    git clone "$GIT_REPO" "$REMOTE_DIR"
-fi
-EOF
+    header "4/6 — Build des images Docker"
+    dc build
 
-    # 3. Génère le .env.production de base (creds Mongo) s'il n'existe pas
-    log "Génération du .env.production (creds Mongo)…"
-    MONGO_USER="ifsuv$(openssl rand -hex 4)"
-    MONGO_PASS=$(openssl rand -base64 32 | tr -d '/+=' | cut -c1-32)
-    remote bash -s "$REMOTE_DIR" "$MONGO_USER" "$MONGO_PASS" <<'EOF'
-set -e
-REMOTE_DIR="$1"; MONGO_USER="$2"; MONGO_PASS="$3"
-cd "$REMOTE_DIR"
-if [ ! -f .env.production ]; then
-    cp .env.production.template .env.production
-    sed -i "s|MONGO_INITDB_ROOT_USERNAME=CHANGE_ME_USER|MONGO_INITDB_ROOT_USERNAME=${MONGO_USER}|" .env.production
-    sed -i "s|MONGO_INITDB_ROOT_PASSWORD=CHANGE_ME_PASS|MONGO_INITDB_ROOT_PASSWORD=${MONGO_PASS}|" .env.production
-    sed -i "s|CHANGE_ME_USER:CHANGE_ME_PASS|${MONGO_USER}:${MONGO_PASS}|" .env.production
-    chmod 600 .env.production
-    echo "[remote] .env.production initial créé."
-else
-    echo "[remote] .env.production existe déjà — creds Mongo conservés."
-fi
-EOF
-
-    # 4. Applique la config interactive (hôte/IP/port/TLS/OVH)
-    apply_config_remote
-
-    # 5. Sauvegarde des valeurs locales (réutilisées par config/update)
-    log "Sauvegarde dans ${LOCAL_SECRETS}…"
-    cat > "${LOCAL_SECRETS}" <<EOF
-# IFSUV deploy — généré $(date)
-IFSUV_VPS_HOST=${VPS_HOST}
-IFSUV_VPS_USER=${VPS_USER}
-IFSUV_DOMAIN=${DOMAIN}
-IFSUV_BIND_IP=${BIND_IP}
-IFSUV_HTTPS_PORT=${HTTPS_PORT}
-IFSUV_TLS_MODE=${TLS_MODE}
-MONGO_USER=${MONGO_USER}
-MONGO_PASS=${MONGO_PASS}
-EOF
-    chmod 600 "${LOCAL_SECRETS}"
-
-    # 6. Build + up
-    check_docker
-    log "docker compose build + up…"
-    remote_compose build
-    remote_compose up -d
-
+    header "5/6 — Démarrage des containers"
+    dc up -d
     sleep 5
-    remote_compose ps
+    dc ps
 
-    ok "Init terminé."
-    ok "Édite ${REMOTE_DIR}/.env.production pour MAILER_USER/MAILER_PASS (SMTP IONOS), puis : ./deploy.sh restart ${VPS_HOST}"
-    [ "$TLS_MODE" = "letsencrypt" ] && ok "Pré-requis DNS : record A ${DOMAIN} → ${BIND_IP}"
-    ok "URL: https://${DOMAIN}:${HTTPS_PORT}"
-    ok "Healthcheck: curl -k --resolve ${DOMAIN}:${HTTPS_PORT}:${BIND_IP} https://${DOMAIN}:${HTTPS_PORT}/api/v1/health"
+    header "6/6 — Vérification"
+    healthcheck
+    summary
 }
 
 cmd_config() {
-    # Repartir de l'état LIVE du VPS (et non du cache local ~/.ifsuv-vps-config
-    # éventuellement périmé) : on vide ces clés pour que load_remote_config les
-    # remplisse depuis le .env.production distant.
-    DOMAIN=""; BIND_IP=""; HTTPS_PORT=""; TLS_MODE=""
-    OVH_ENDPOINT=""; OVH_APPLICATION_KEY=""; OVH_APPLICATION_SECRET=""; OVH_CONSUMER_KEY=""
-    load_remote_config
+    require_root
+    [ -f "$ENV_FILE" ] || { err "Pas encore installé (.env.production absent). Lance : sudo bash deploy.sh"; exit 1; }
     prompt_config
-    apply_config_remote
-    check_docker
+    apply_config
+    prompt_mailer
     log "Recréation des containers avec la nouvelle config…"
-    remote_compose up -d
+    dc up -d
     sleep 3
     healthcheck
-    ok "Config mise à jour — URL: https://${DOMAIN}:${HTTPS_PORT}"
-    if [ "$TLS_MODE" = "letsencrypt" ]; then
-        ok "Vérifie le record A ${DOMAIN} → ${BIND_IP} et l'émission du cert : ./deploy.sh logs ${VPS_HOST} caddy"
-    fi
+    summary
 }
 
 cmd_update() {
-    log "Update IFSUV sur ${VPS_USER}@${VPS_HOST}…"
-    remote "cd ${REMOTE_DIR} && git pull"
-    check_docker
-    log "docker compose build…"
-    remote_compose build
-    log "docker compose up -d…"
-    remote_compose up -d
-    log "Healthcheck…"
+    require_root
+    [ -f "$ENV_FILE" ] || { err "Pas encore installé. Lance : sudo bash deploy.sh"; exit 1; }
+    log "git pull…"
+    git config --global --add safe.directory "$REPO_DIR" 2>/dev/null || true
+    ( cd "$REPO_DIR" && git pull )
+    log "Build + redémarrage…"
+    dc build
+    dc up -d
     sleep 3
+    DOMAIN="$(get_env DOMAIN)"; BIND_IP="$(get_env IFSUV_BIND_IP)"; HTTPS_PORT="$(get_env CADDY_HTTPS_PORT)"
     healthcheck
 }
 
-cmd_logs() {
-    SERVICE="${3:-}"
-    if [ -n "$SERVICE" ]; then
-        remote_compose logs -f "$SERVICE"
-    else
-        remote_compose logs -f
-    fi
-}
-
-cmd_restart() {
-    log "Restart tous services…"
-    remote_compose down
-    remote_compose up -d
-    ok "Restart OK."
-}
-
-cmd_shell() {
-    log "SSH dans ${REMOTE_DIR}…"
-    # shellcheck disable=SC2029
-    ssh -t "${VPS_USER}@${VPS_HOST}" "cd ${REMOTE_DIR} && bash"
-}
-
-cmd_status() {
-    remote_compose ps
-}
+cmd_logs()    { require_root; if [ -n "${1:-}" ]; then dc logs -f "$1"; else dc logs -f; fi; }
+cmd_restart() { require_root; dc down; dc up -d; ok "Redémarré."; }
+cmd_status()  { require_root; dc ps; }
 
 # ----- Dispatch -----
+CMD="${1:-install}"
+shift || true
 case "$CMD" in
-    init) cmd_init ;;
-    config) cmd_config ;;
-    update) cmd_update ;;
-    logs) cmd_logs "$@" ;;
-    restart) cmd_restart ;;
-    shell) cmd_shell ;;
-    status) cmd_status ;;
-    *) usage ;;
+    install|"") cmd_install ;;
+    config)     cmd_config ;;
+    update)     cmd_update ;;
+    logs)       cmd_logs "${1:-}" ;;
+    restart)    cmd_restart ;;
+    status)     cmd_status ;;
+    *)          usage ;;
 esac

@@ -43,48 +43,40 @@ Le Nginx natif n'est jamais touché.
 ## Prérequis VPS
 
 - **Ubuntu 22.04 LTS** (ou 24.04, fonctionne)
-- **SSH key** déposée sur l'utilisateur `deploy` (recommandé, pas root) ; cet utilisateur doit pouvoir lancer `docker`
-- **Une IP dédiée** à IFSUV (libre, non utilisée par une instance WEBX/Nginx) → `IFSUV_BIND_IP`
+- **Accès root** au serveur (le script se lance en `sudo bash deploy.sh` **directement sur le serveur**)
+- **Une IP dédiée** à IFSUV (libre, non utilisée par une instance WEBX/Nginx) → proposée par défaut (IP du serveur auto-détectée), modifiable
 - **Selon le mode TLS choisi** :
   - mode `internal` (hôte = IP) : rien de plus, le cert est auto-signé localement
-  - mode `letsencrypt` (hôte = domaine) : un **record A** `<domaine> → IFSUV_BIND_IP` + un **token API OVH** (zone DNS) — voir la section *Certificat*
+  - mode `letsencrypt` (hôte = domaine) : un **record A** `<domaine> → IP de bind` + un **token API OVH** (zone DNS) — voir la section *Certificat*
 
 Notes :
 - **Pas besoin d'ouvrir 80/443** : IFSUV écoute sur `8443`, et le challenge Let's Encrypt est en DNS-01 (pas HTTP). Docker publie ce port en **contournant UFW** (joignable même sans règle UFW).
-- Docker et Docker Compose sont installés automatiquement par `deploy.sh init` s'ils sont absents — ils cohabitent avec la stack native (Node/PM2/Nginx/Mongo) de WEBX-CMS sans interférence.
+- Docker et Docker Compose sont installés automatiquement par `deploy.sh` s'ils sont absents (avec **confirmation** au pré-vol) — ils cohabitent avec la stack native (Node/PM2/Nginx/Mongo) de WEBX-CMS sans interférence.
 
 ## Première installation
 
-Depuis ton poste de dev (Windows ou Linux). L'`init` est **interactif** : il demande
-l'hôte (IP ou domaine), le mode TLS, l'IP de bind, le port, et les creds OVH si Let's Encrypt.
+Tout se passe **sur le serveur**, en root. Le script est interactif (façon `deployWEBXF.sh`) :
+défauts partout (Entrée suffit), l'IP du serveur étant proposée comme hôte.
 
 ```bash
-# (optionnel) pré-remplir les prompts via .env.deploy gitignored à la racine du repo
-cat > .env.deploy <<EOF
-IFSUV_VPS_HOST=monvps.example.com
-IFSUV_VPS_USER=deploy
-IFSUV_GIT_REPO=https://github.com/Lospanchos77/ifSuv.git
-IFSUV_BIND_IP=51.83.12.34      # IP de bind (défaut des prompts)
-IFSUV_DOMAIN=51.83.12.34       # hôte public : IP (mode internal) OU domaine (letsencrypt)
-EOF
+# 1. Récupérer le repo sur le serveur (repo public, ou clé/token de déploiement si privé)
+git clone https://github.com/Lospanchos77/ifSuv.git /opt/ifsuv
+cd /opt/ifsuv
 
-# Lancer l'init interactif
-./deploy.sh init monvps.example.com
+# 2. Lancer l'installeur interactif
+sudo bash deploy.sh
 ```
 
-Le script va :
+Le script enchaîne **6 étapes** :
 
-1. **Demander** hôte / mode TLS / bind / port / creds OVH (avec récap + confirmation)
-2. SSH sur le VPS, installer Docker + git si absents (cohabite avec la stack native WEBX)
-3. Cloner le repo dans `/opt/ifsuv`
-4. Générer `.env.production` (creds Mongo aléatoires) puis y écrire la config saisie
-5. Sauvegarder les valeurs dans `~/.ifsuv-vps-config` (chmod 600, réutilisées par `config`/`update`)
-6. Builder l'image Caddy custom + `docker compose up -d`, afficher l'état
+1. **Configuration** — hôte (IP/domaine, défaut = IP du serveur), mode TLS (auto : IP→`internal`, domaine→`letsencrypt`), bind, port, creds OVH si Let's Encrypt ; récap + confirmation
+2. **Pré-vol & Docker** — vérifie port/RAM/disque, et **demande confirmation avant d'installer Docker** s'il est absent
+3. **Environnement** — génère `.env.production` (creds Mongo aléatoires) + écrit la config ; SMTP optionnel (Entrée pour plus tard)
+4. **Build** des images Docker
+5. **Démarrage** des containers
+6. **Vérification** (healthcheck) + récap encadré
 
-**Action manuelle ensuite** : éditer `/opt/ifsuv/.env.production` pour `MAILER_USER`/`MAILER_PASS`
-(SMTP IONOS), puis `./deploy.sh restart monvps.example.com`.
-
-Vérification (`--resolve` mappe l'hôte sur l'IP ; `-k` car le cert peut être interne) :
+Vérification manuelle (`--resolve` mappe l'hôte sur l'IP ; `-k` car le cert peut être interne) :
 
 ```bash
 curl -k --resolve 51.83.12.34:8443:51.83.12.34 https://51.83.12.34:8443/api/v1/health
@@ -93,27 +85,26 @@ curl -k --resolve 51.83.12.34:8443:51.83.12.34 https://51.83.12.34:8443/api/v1/h
 
 ## Changer hôte / IP / domaine / port / TLS (réajustable)
 
-Tout est modifiable à tout moment, sans réinstaller, via `config` (interactif, valeurs
-courantes pré-remplies) :
+Sur le serveur, sans réinstaller (valeurs courantes pré-remplies) :
 
 ```bash
-./deploy.sh config monvps.example.com
+cd /opt/ifsuv && sudo bash deploy.sh config
 ```
 
 Exemple — passer d'une IP (cert interne) à un domaine (Let's Encrypt) :
 
 1. Créer le record DNS A `ifsuv.if77.fr → <IP de bind>` + un token API OVH
-2. `./deploy.sh config monvps.example.com` → saisir `ifsuv.if77.fr`, choisir `letsencrypt`, coller les creds OVH
+2. `sudo bash deploy.sh config` → saisir `ifsuv.if77.fr`, choisir `letsencrypt`, coller les creds OVH
 3. Le script met à jour `.env.production` et recrée les containers ; Caddy émet le cert Let's Encrypt
 
 `config` met aussi à jour `CORS_ORIGIN`/`APP_URL` automatiquement selon le nouvel hôte:port.
 
 ## Mise à jour (nouveau code)
 
-Après un push sur `main` :
+Après un push sur `main`, sur le serveur :
 
 ```bash
-./deploy.sh update monvps.example.com
+cd /opt/ifsuv && sudo bash deploy.sh update
 ```
 
 Le script : `git pull` → `docker compose build` (images modifiées) → `up -d` → healthcheck.
@@ -121,14 +112,15 @@ Downtime typique : **< 5 secondes**.
 
 ## Commandes courantes
 
+Toutes sur le serveur, dans `/opt/ifsuv`, en root :
+
 ```bash
-./deploy.sh config monvps.example.com             # changer hôte/IP/domaine/port/TLS
-./deploy.sh logs monvps.example.com               # tous les services, suivi live
-./deploy.sh logs monvps.example.com api           # uniquement l'API
-./deploy.sh logs monvps.example.com caddy         # uniquement Caddy (debug TLS)
-./deploy.sh status monvps.example.com             # docker compose ps
-./deploy.sh restart monvps.example.com            # restart tous les containers
-./deploy.sh shell monvps.example.com              # ssh interactif dans /opt/ifsuv
+sudo bash deploy.sh config        # changer hôte/IP/domaine/port/TLS
+sudo bash deploy.sh update        # git pull + rebuild + redémarrage
+sudo bash deploy.sh logs          # tous les services, suivi live
+sudo bash deploy.sh logs caddy    # uniquement Caddy (debug TLS)
+sudo bash deploy.sh status        # docker compose ps
+sudo bash deploy.sh restart       # restart tous les containers
 ```
 
 ## Backup MongoDB
