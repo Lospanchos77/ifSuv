@@ -15,7 +15,6 @@ import {
 import { useDebouncedValue } from '@mantine/hooks';
 import { zodResolver } from '@hookform/resolvers/zod';
 import {
-  Role,
   TicketCreateInput,
   type TicketPublic,
   TicketUpdateInput,
@@ -26,7 +25,7 @@ import { useNavigate } from 'react-router-dom';
 import { swalError, swalSuccess } from '../../lib/swal';
 import { useCompaniesList } from '../clients/hooks';
 import { useSiteSettings } from '../settings/hooks';
-import { useUsersList } from '../users/hooks';
+import { useAssignableTechs } from '../users/hooks';
 import { useCreateTicket, useCustomerSuggestions, useUpdateTicket } from './hooks';
 
 interface Props {
@@ -66,7 +65,7 @@ export function TicketFormDrawer({ opened, onClose, ticket }: Props): JSX.Elemen
   const updateMut = useUpdateTicket(ticket?.id ?? '');
 
   const companiesQuery = useCompaniesList({ pageSize: 100 });
-  const techsQuery = useUsersList({ role: Role.Technician, pageSize: 100 });
+  const techsQuery = useAssignableTechs();
   const settings = useSiteSettings();
   const customFieldDefs = settings.data?.customTicketFields ?? [];
 
@@ -154,11 +153,10 @@ export function TicketFormDrawer({ opened, onClose, ticket }: Props): JSX.Elemen
 
   const companyOptions =
     companiesQuery.data?.items.map((c) => ({ value: c.id, label: c.name })) ?? [];
-  const techOptions =
-    techsQuery.data?.items.map((u) => ({
-      value: u.id,
-      label: `${u.firstName} ${u.lastName}`,
-    })) ?? [];
+  const techOptions = techsQuery.items.map((u) => ({
+    value: u.id,
+    label: `${u.firstName} ${u.lastName}`,
+  }));
 
   return (
     <Modal

@@ -26,7 +26,7 @@ import { MiniQrTech } from '../../features/tickets/MiniQrTech';
 import { StatusBadge } from '../../features/tickets/StatusBadge';
 import { TicketFormDrawer } from '../../features/tickets/TicketFormDrawer';
 import { useDeleteTicket, useTicketsList } from '../../features/tickets/hooks';
-import { useUsersList } from '../../features/users/hooks';
+import { useAssignableTechs } from '../../features/users/hooks';
 import { swalConfirm, swalError, swalSuccess } from '../../lib/swal';
 
 const PAGE_SIZE = 20;
@@ -88,7 +88,7 @@ export function TicketsListPage({
     pageSize: PAGE_SIZE,
   });
 
-  const techsQuery = useUsersList({ role: Role.Technician, pageSize: 100 });
+  const techsQuery = useAssignableTechs();
   const companiesQuery = useCompaniesList({ pageSize: 100 });
 
   const totalPages = data ? Math.max(1, Math.ceil(data.total / PAGE_SIZE)) : 1;
@@ -143,12 +143,10 @@ export function TicketsListPage({
               setTechId(v ?? undefined);
               setPage(1);
             }}
-            data={
-              techsQuery.data?.items.map((u) => ({
-                value: u.id,
-                label: `${u.firstName} ${u.lastName}`,
-              })) ?? []
-            }
+            data={techsQuery.items.map((u) => ({
+              value: u.id,
+              label: `${u.firstName} ${u.lastName}`,
+            }))}
             searchable
             clearable
             w={200}
