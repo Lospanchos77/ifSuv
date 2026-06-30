@@ -14,6 +14,7 @@ import {
 import { useDisclosure } from '@mantine/hooks';
 import { Role } from '@ifsuv/shared';
 import {
+  IconChartBar,
   IconDashboard,
   IconHistory,
   IconLogout,
@@ -180,6 +181,15 @@ export function AppShellLayout(): JSX.Element {
             label="Utilisateurs"
             leftSection={<IconUserCog size={18} />}
             active={location.pathname.startsWith('/users')}
+          />
+        )}
+        {isAdmin && (
+          <NavLink
+            component={Link}
+            to="/performances"
+            label="Performances"
+            leftSection={<IconChartBar size={18} />}
+            active={location.pathname.startsWith('/performances')}
           />
         )}
         {isAdmin && (

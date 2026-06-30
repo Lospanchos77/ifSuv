@@ -6,6 +6,7 @@ import type {
   TicketFilePublic,
   TicketPublic,
   TicketStatsResponse,
+  TechPerfStatsResponse,
   TicketTransitionInput,
   TicketUpdateInput,
 } from '@ifsuv/shared';
@@ -32,6 +33,10 @@ export function listTickets(
 
 export function getTicketStats(): Promise<TicketStatsResponse> {
   return apiFetch<TicketStatsResponse>('/tickets/stats');
+}
+
+export function getTechPerf(): Promise<TechPerfStatsResponse> {
+  return apiFetch<TechPerfStatsResponse>('/tickets/performance');
 }
 
 export function getTicket(id: string): Promise<TicketPublic> {

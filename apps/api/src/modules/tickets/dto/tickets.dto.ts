@@ -7,6 +7,7 @@ import {
   TicketFilePublic,
   TicketPublic,
   TicketStatsResponse,
+  TechPerfStatsResponse,
   TicketTransitionInput,
   TicketUpdateInput,
 } from '@ifsuv/shared';
@@ -19,4 +20,5 @@ export class TicketPublicDto extends createZodDto(TicketPublic) {}
 export class TicketFilePublicDto extends createZodDto(TicketFilePublic) {}
 export class TicketListResponseDto extends createZodDto(TicketListResponse) {}
 export class TicketStatsResponseDto extends createZodDto(TicketStatsResponse) {}
+export class TechPerfStatsResponseDto extends createZodDto(TechPerfStatsResponse) {}
 export class CustomerSuggestQueryDto extends createZodDto(CustomerSuggestQuery) {}

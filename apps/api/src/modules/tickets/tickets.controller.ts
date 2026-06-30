@@ -35,6 +35,7 @@ import {
   TicketFilePublicDto,
   TicketPublicDto,
   TicketStatsResponseDto,
+  TechPerfStatsResponseDto,
   TicketTransitionInputDto,
   TicketUpdateInputDto,
 } from './dto/tickets.dto';
@@ -60,6 +61,13 @@ export class TicketsController {
   @Get('stats')
   stats(): Promise<TicketStatsResponseDto> {
     return this.tickets.stats();
+  }
+
+  // Performances par technicien — réservé aux admins (override du @Roles classe).
+  @Get('performance')
+  @Roles(Role.Admin)
+  techPerfStats(): Promise<TechPerfStatsResponseDto> {
+    return this.tickets.techPerfStats();
   }
 
   // ⚠ Route statique — doit être déclarée AVANT le handler dynamique `:id`,

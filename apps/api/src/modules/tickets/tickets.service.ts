@@ -19,6 +19,7 @@ import {
   type TicketFilePublic,
   type TicketPublic,
   type TicketStatsResponse,
+  type TechPerfStatsResponse,
   type TicketTransitionInput,
   type TicketUpdateInput,
 } from '@ifsuv/shared';
@@ -432,6 +433,124 @@ export class TicketsService {
       total += row.count;
     }
     return { byStatus, total };
+  }
+
+  /**
+   * Performances par technicien (admin) : volume pris en charge, répartition par
+   * statut, et temps moyens ouverture(createdAt)→résolution / clôture. Le temps de
+   * résolution provient du 1er event de transition vers RESOLVED ; la clôture de
+   * `closedAt`. Groupé par technicien assigné (assignedTechId).
+   */
+  async techPerfStats(): Promise<TechPerfStatsResponse> {
+    const grouped = await this.tickets.aggregate<{
+      _id: Types.ObjectId | null;
+      total: number;
+      NEW: number;
+      IN_PROGRESS: number;
+      RESOLVED: number;
+      CLOSED: number;
+      sumResolutionMs: number;
+      cntResolution: number;
+      sumClosureMs: number;
+      cntClosure: number;
+    }>([
+      {
+        // 1ère date de passage en RESOLVED, extraite des events de transition.
+        $addFields: {
+          _resolvedAt: {
+            $min: {
+              $map: {
+                input: {
+                  $filter: {
+                    input: { $ifNull: ['$events', []] },
+                    as: 'e',
+                    cond: {
+                      $and: [
+                        { $eq: ['$$e.type', 'ticket.transition'] },
+                        { $eq: ['$$e.payload.to', TicketStatus.Resolved] },
+                      ],
+                    },
+                  },
+                },
+                as: 'e',
+                in: '$$e.at',
+              },
+            },
+          },
+        },
+      },
+      {
+        $group: {
+          _id: '$assignedTechId',
+          total: { $sum: 1 },
+          NEW: { $sum: { $cond: [{ $eq: ['$status', TicketStatus.New] }, 1, 0] } },
+          IN_PROGRESS: {
+            $sum: { $cond: [{ $eq: ['$status', TicketStatus.InProgress] }, 1, 0] },
+          },
+          RESOLVED: { $sum: { $cond: [{ $eq: ['$status', TicketStatus.Resolved] }, 1, 0] } },
+          CLOSED: { $sum: { $cond: [{ $eq: ['$status', TicketStatus.Closed] }, 1, 0] } },
+          sumResolutionMs: {
+            $sum: {
+              $cond: [
+                { $ne: ['$_resolvedAt', null] },
+                { $subtract: ['$_resolvedAt', '$createdAt'] },
+                0,
+              ],
+            },
+          },
+          cntResolution: { $sum: { $cond: [{ $ne: ['$_resolvedAt', null] }, 1, 0] } },
+          sumClosureMs: {
+            $sum: {
+              $cond: [
+                { $ne: ['$closedAt', null] },
+                { $subtract: ['$closedAt', '$createdAt'] },
+                0,
+              ],
+            },
+          },
+          cntClosure: { $sum: { $cond: [{ $ne: ['$closedAt', null] }, 1, 0] } },
+        },
+      },
+    ]);
+
+    const techIds = grouped
+      .map((r) => r._id)
+      .filter((x): x is Types.ObjectId => !!x);
+    const techsById = await this.users.find({ _id: { $in: techIds } }).then(byId);
+
+    const rows = grouped.map((r) => {
+      const tech = r._id ? techsById.get(r._id.toString()) : undefined;
+      const techName = r._id
+        ? tech
+          ? `${tech.firstName} ${tech.lastName}`
+          : 'Utilisateur supprimé'
+        : 'Non assigné';
+      return {
+        techId: r._id ? r._id.toString() : null,
+        techName,
+        total: r.total,
+        byStatus: {
+          NEW: r.NEW,
+          IN_PROGRESS: r.IN_PROGRESS,
+          RESOLVED: r.RESOLVED,
+          CLOSED: r.CLOSED,
+        },
+        resolvedCount: r.cntResolution,
+        closedCount: r.cntClosure,
+        avgResolutionMs:
+          r.cntResolution > 0 ? Math.round(r.sumResolutionMs / r.cntResolution) : null,
+        avgClosureMs: r.cntClosure > 0 ? Math.round(r.sumClosureMs / r.cntClosure) : null,
+      };
+    });
+
+    // Tri : plus gros volume traité (résolus + clos) en tête, puis total.
+    rows.sort(
+      (a, b) =>
+        b.resolvedCount + b.closedCount - (a.resolvedCount + a.closedCount) ||
+        b.total - a.total,
+    );
+
+    return { rows };
   }
 
   /**

@@ -38,6 +38,13 @@ export function useTicketStats() {
   });
 }
 
+export function useTechPerf() {
+  return useQuery({
+    queryKey: [...KEYS.all, 'performance'] as const,
+    queryFn: () => api.getTechPerf(),
+  });
+}
+
 export function useCreateTicket() {
   const qc = useQueryClient();
   return useMutation({

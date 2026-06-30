@@ -11,6 +11,7 @@ import { ClientDetailPage } from './routes/clients/ClientDetailPage';
 import { ClientsPage } from './routes/clients/ClientsPage';
 import { HomePage } from './routes/home/HomePage';
 import { NotFoundPage } from './routes/not-found/NotFoundPage';
+import { PerformancesPage } from './routes/performances/PerformancesPage';
 import { PublicTicketPage } from './routes/public/PublicTicketPage';
 import { SettingsPage } from './routes/settings/SettingsPage';
 import { TechTokenRedirectPage } from './routes/tech/TechTokenRedirectPage';
@@ -58,6 +59,7 @@ const router = createBrowserRouter([
             element: <RequireRole allow={[Role.Admin]} />,
             children: [
               { path: 'users', element: <UsersPage /> },
+              { path: 'performances', element: <PerformancesPage /> },
               { path: 'settings', element: <SettingsPage /> },
             ],
           },

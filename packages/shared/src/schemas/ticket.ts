@@ -222,3 +222,30 @@ export const TicketStatsResponse = z.object({
   total: z.number().int().nonnegative(),
 });
 export type TicketStatsResponse = z.infer<typeof TicketStatsResponse>;
+
+/**
+ * Stats de performance par technicien (admin) : volume pris en charge + temps
+ * moyens ouverture→résolution et ouverture→clôture (durées en millisecondes,
+ * null si aucun ticket résolu/clos). Groupé par technicien assigné.
+ */
+export const TechPerfRow = z.object({
+  techId: ObjectIdString.nullable(),
+  techName: z.string(),
+  total: z.number().int().nonnegative(),
+  byStatus: z.object({
+    NEW: z.number().int().nonnegative(),
+    IN_PROGRESS: z.number().int().nonnegative(),
+    RESOLVED: z.number().int().nonnegative(),
+    CLOSED: z.number().int().nonnegative(),
+  }),
+  resolvedCount: z.number().int().nonnegative(),
+  closedCount: z.number().int().nonnegative(),
+  avgResolutionMs: z.number().nonnegative().nullable(),
+  avgClosureMs: z.number().nonnegative().nullable(),
+});
+export type TechPerfRow = z.infer<typeof TechPerfRow>;
+
+export const TechPerfStatsResponse = z.object({
+  rows: z.array(TechPerfRow),
+});
+export type TechPerfStatsResponse = z.infer<typeof TechPerfStatsResponse>;

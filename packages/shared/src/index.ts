@@ -50,6 +50,8 @@ export {
   TicketListItem,
   TicketListResponse,
   TicketStatsResponse,
+  TechPerfRow,
+  TechPerfStatsResponse,
   CustomFieldsData,
   CustomerSuggestQuery,
   CustomerSuggestion,
