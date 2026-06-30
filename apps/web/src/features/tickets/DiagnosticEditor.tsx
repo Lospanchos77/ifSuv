@@ -1,4 +1,4 @@
-import { Button, Card, Group, Stack, Title } from '@mantine/core';
+import { Box, Button, Card, Group, Title } from '@mantine/core';
 import { IconCheck, IconEdit, IconX } from '@tabler/icons-react';
 import { useState } from 'react';
 import { RichTextDisplay } from '../../components/editor/RichTextDisplay';
@@ -15,6 +15,7 @@ interface Props {
 export function DiagnosticEditor({ ticketId, diagnosticHtml }: Props): JSX.Element {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(diagnosticHtml);
+  const [hover, setHover] = useState(false);
   const updateMut = useUpdateTicket(ticketId);
 
   function startEditing(): void {
@@ -80,12 +81,32 @@ export function DiagnosticEditor({ ticketId, diagnosticHtml }: Props): JSX.Eleme
           onImageUpload={(file) => uploadDiagImage(ticketId, file)}
         />
       ) : (
-        <Stack gap="xs">
+        <Box
+          onClick={startEditing}
+          onMouseEnter={() => setHover(true)}
+          onMouseLeave={() => setHover(false)}
+          role="button"
+          tabIndex={0}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault();
+              startEditing();
+            }
+          }}
+          title={diagnosticHtml ? 'Cliquer pour modifier le diagnostic' : 'Cliquer pour saisir le diagnostic'}
+          p="xs"
+          style={{
+            cursor: 'pointer',
+            borderRadius: 'var(--mantine-radius-sm)',
+            backgroundColor: hover ? 'var(--mantine-color-default-hover)' : undefined,
+            transition: 'background-color 120ms ease',
+          }}
+        >
           <RichTextDisplay
             html={diagnosticHtml}
             emptyText="Aucun diagnostic saisi pour ce ticket."
           />
-        </Stack>
+        </Box>
       )}
     </Card>
   );
