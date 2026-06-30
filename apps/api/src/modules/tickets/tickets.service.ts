@@ -253,6 +253,30 @@ export class TicketsService {
       } as never);
     }
 
+    // Auto-passage NEW → IN_PROGRESS à la première saisie d'un diagnostic non vide,
+    // tant que le statut n'a pas été changé manuellement (toujours NEW). L'endpoint
+    // update étant réservé Admin/Technicien, la transition est toujours autorisée.
+    if (ticket.status === TicketStatus.New && changed['diagnosticHtml'] !== undefined) {
+      const html = ticket.diagnosticHtml ?? '';
+      const hasContent =
+        html.replace(/<[^>]*>/g, '').replace(/&nbsp;/gi, ' ').trim() !== '' ||
+        /<img\b/i.test(html);
+      if (hasContent) {
+        ticket.events.push({
+          actorUserId: actor.id,
+          type: 'ticket.transition',
+          payload: {
+            from: TicketStatus.New,
+            to: TicketStatus.InProgress,
+            comment: 'Passage automatique à la première saisie du diagnostic',
+            auto: true,
+          },
+          at: new Date(),
+        } as never);
+        ticket.status = TicketStatus.InProgress;
+      }
+    }
+
     const saved = await ticket.save();
     return this.toPublic(saved);
   }
