@@ -248,6 +248,9 @@ ensure_env() {
 
 apply_config() {
     local url="https://${DOMAIN}:${HTTPS_PORT}"
+    # QR_TOKEN_SECRET requis par l'API (>= 32 car) — généré s'il manque ou est un placeholder.
+    local qr; qr="$(get_env QR_TOKEN_SECRET)"
+    if [ "${#qr}" -lt 32 ]; then setkv QR_TOKEN_SECRET "$(openssl rand -hex 32)"; fi
     setkv DOMAIN "$DOMAIN"
     setkv IFSUV_BIND_IP "$BIND_IP"
     setkv CADDY_HTTPS_PORT "$HTTPS_PORT"
