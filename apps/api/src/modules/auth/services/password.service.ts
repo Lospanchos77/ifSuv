@@ -9,8 +9,12 @@ export class PasswordService {
   private readonly timeCost: number;
 
   constructor(config: ConfigService) {
-    this.memoryCost = config.get<number>('ARGON2_MEMORY_COST', 19456);
-    this.timeCost = config.get<number>('ARGON2_TIME_COST', 2);
+    // Number() obligatoire : ConfigService.get renvoie la valeur brute de
+    // process.env (string) pour les clés présentes dans l'env, or @node-rs/argon2
+    // (napi) exige un u32 numérique pour memoryCost/timeCost (sinon "Failed to
+    // convert napi value String into rust type u32" au hash).
+    this.memoryCost = Number(config.get('ARGON2_MEMORY_COST', 19456));
+    this.timeCost = Number(config.get('ARGON2_TIME_COST', 2));
   }
 
   hash(plain: string): Promise<string> {
