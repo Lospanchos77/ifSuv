@@ -18,6 +18,9 @@ ARG CADDY_VERSION=2.8.4
 
 FROM caddy:${CADDY_VERSION}-builder AS builder
 ARG CADDY_DNS_MODULE=github.com/caddy-dns/ovh
+# Le builder Caddy 2.8.4 embarque Go 1.23 + GOTOOLCHAIN=local, mais caddy-dns/ovh
+# récent exige Go >= 1.24. On autorise Go à télécharger le toolchain requis.
+ENV GOTOOLCHAIN=auto
 RUN xcaddy build --with ${CADDY_DNS_MODULE}
 
 FROM caddy:${CADDY_VERSION}-alpine
