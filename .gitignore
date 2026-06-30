@@ -21,6 +21,9 @@ coverage/
 !.env.example
 !.env.production.template
 
+# Certificats certbot (mode TLS manual) — contient des clés privées
+/letsencrypt/
+
 # Editor
 .vscode/*
 !.vscode/extensions.json

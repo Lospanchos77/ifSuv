@@ -80,8 +80,12 @@ services:
       OVH_CONSUMER_KEY: ${OVH_CONSUMER_KEY}
     volumes:
       - ./Caddyfile.prod:/etc/caddy/Caddyfile:ro
-      # Mode TLS injecté au déploiement : tls.le.conf (Let's Encrypt) ou tls.internal.conf (IP).
+      # Mode TLS injecté au déploiement : tls.le.conf (LE auto), tls.internal.conf (IP)
+      # ou tls.manual.conf (cert externe certbot).
       - ./${CADDY_TLS_CONF:-tls.internal.conf}:/etc/caddy/tls.conf:ro
+      # Certificats externes (mode TLS manual via certbot) : <repo>/letsencrypt → /etc/caddy/le.
+      # Vide/inutilisé en modes internal & letsencrypt. Lecture seule.
+      - ../letsencrypt:/etc/caddy/le:ro
       - caddy-data:/data
       - caddy-config:/config
     depends_on:

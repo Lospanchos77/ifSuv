@@ -38,6 +38,7 @@ usage() {
 IFSUV — à lancer sur le serveur, en root :
   sudo bash deploy.sh            Install / reconfiguration interactive
   sudo bash deploy.sh config     Re-poser les questions et réappliquer
+  sudo bash deploy.sh cert       Renouveler le cert (mode TLS manuel) — affiche le TXT à coller
   sudo bash deploy.sh update     git pull + rebuild + redémarrage
   sudo bash deploy.sh logs [svc] Logs (suivi live)
   sudo bash deploy.sh restart    Redémarrage
@@ -67,6 +68,7 @@ OVH_ENDPOINT="${OVH_ENDPOINT:-}"
 OVH_APPLICATION_KEY="${OVH_APPLICATION_KEY:-}"
 OVH_APPLICATION_SECRET="${OVH_APPLICATION_SECRET:-}"
 OVH_CONSUMER_KEY="${OVH_CONSUMER_KEY:-}"
+ACME_EMAIL="${ACME_EMAIL:-}"
 
 # ----- Helpers -----
 ask() { # prompt [default] -> echoes value (default si vide)
@@ -125,6 +127,7 @@ prompt_config() {
     [ -z "$OVH_APPLICATION_KEY" ] && OVH_APPLICATION_KEY="$(get_env OVH_APPLICATION_KEY)"
     [ -z "$OVH_APPLICATION_SECRET" ] && OVH_APPLICATION_SECRET="$(get_env OVH_APPLICATION_SECRET)"
     [ -z "$OVH_CONSUMER_KEY" ] && OVH_CONSUMER_KEY="$(get_env OVH_CONSUMER_KEY)"
+    [ -z "$ACME_EMAIL" ] && ACME_EMAIL="$(get_env ACME_EMAIL)"
 
     echo ""
     echo -e "  ${BOLD}Configuration de l'accès IFSUV${NC}  (Entrée = garder la valeur entre crochets)"
@@ -139,7 +142,7 @@ prompt_config() {
         TLS_MODE="internal"
         [ -z "$BIND_IP" ] && BIND_IP="$DOMAIN"
     else
-        TLS_MODE=$(ask "Mode TLS [letsencrypt/internal]" "${TLS_MODE:-letsencrypt}")
+        TLS_MODE=$(ask "Mode TLS [letsencrypt/manual/internal]" "${TLS_MODE:-letsencrypt}")
     fi
 
     BIND_IP=$(ask "IP du serveur sur laquelle écouter (bind)" "${BIND_IP:-$DOMAIN}")
@@ -147,18 +150,28 @@ prompt_config() {
 
     HTTPS_PORT=$(ask "Port HTTPS" "${HTTPS_PORT:-8443}")
 
-    if [ "$TLS_MODE" = "letsencrypt" ]; then
-        TLS_CONF="tls.le.conf"
-        echo ""
-        log "Let's Encrypt DNS-01 OVH — token API (https://api.ovh.com/createToken/, droits zone DNS)"
-        OVH_ENDPOINT=$(ask "OVH endpoint" "${OVH_ENDPOINT:-ovh-eu}")
-        OVH_APPLICATION_KEY=$(ask_secret "OVH application key" "$OVH_APPLICATION_KEY")
-        OVH_APPLICATION_SECRET=$(ask_secret "OVH application secret" "$OVH_APPLICATION_SECRET")
-        OVH_CONSUMER_KEY=$(ask_secret "OVH consumer key" "$OVH_CONSUMER_KEY")
-    else
-        TLS_CONF="tls.internal.conf"
-        TLS_MODE="internal"
-    fi
+    case "$TLS_MODE" in
+        letsencrypt)
+            TLS_CONF="tls.le.conf"
+            echo ""
+            log "Let's Encrypt DNS-01 OVH (AUTO) — token API (https://api.ovh.com/createToken/, droits zone DNS)"
+            OVH_ENDPOINT=$(ask "OVH endpoint" "${OVH_ENDPOINT:-ovh-eu}")
+            OVH_APPLICATION_KEY=$(ask_secret "OVH application key" "$OVH_APPLICATION_KEY")
+            OVH_APPLICATION_SECRET=$(ask_secret "OVH application secret" "$OVH_APPLICATION_SECRET")
+            OVH_CONSUMER_KEY=$(ask_secret "OVH consumer key" "$OVH_CONSUMER_KEY")
+            ;;
+        manual)
+            TLS_CONF="tls.manual.conf"
+            echo ""
+            log "Let's Encrypt DNS-01 MANUEL : certbot affichera un TXT à coller dans ta zone OVH."
+            log "Renouvellement à la main (~60-90 j) : sudo bash deploy.sh cert"
+            ACME_EMAIL=$(ask "Email Let's Encrypt (reçoit les rappels d'expiration)" "${ACME_EMAIL:-admin@${DOMAIN}}")
+            ;;
+        *)
+            TLS_MODE="internal"
+            TLS_CONF="tls.internal.conf"
+            ;;
+    esac
 
     echo ""
     echo -e "  ${BOLD}Récapitulatif${NC}"
@@ -166,7 +179,7 @@ prompt_config() {
     echo -e "    Bind / port  : ${GREEN}${BIND_IP}:${HTTPS_PORT}${NC}"
     echo -e "    Mode TLS     : ${GREEN}${TLS_MODE}${NC}"
     echo -e "    URL d'accès  : ${GREEN}https://${DOMAIN}:${HTTPS_PORT}${NC}"
-    [ "$TLS_MODE" = "letsencrypt" ] && echo -e "    DNS requis   : ${YELLOW}record A ${DOMAIN} → ${BIND_IP}${NC}"
+    [ "$TLS_MODE" != "internal" ] && echo -e "    DNS requis   : ${YELLOW}record A ${DOMAIN} → ${BIND_IP}${NC}"
     echo ""
     local c; read -r -p "$(echo -e "  ${YELLOW}Confirmer ? (o/n): ${NC}")" c
     if [ "$c" != "o" ] && [ "$c" != "O" ]; then echo "Annulé."; exit 0; fi
@@ -242,17 +255,27 @@ apply_config() {
     setkv CADDY_TLS_CONF "$TLS_CONF"
     setkv CORS_ORIGIN "$url"
     setkv APP_URL "$url"
-    if [ "$TLS_MODE" = "letsencrypt" ]; then
-        setkv OVH_ENDPOINT "$OVH_ENDPOINT"
-        setkv OVH_APPLICATION_KEY "$OVH_APPLICATION_KEY"
-        setkv OVH_APPLICATION_SECRET "$OVH_APPLICATION_SECRET"
-        setkv OVH_CONSUMER_KEY "$OVH_CONSUMER_KEY"
-    else
-        # Mode internal : purge les éventuels secrets OVH périmés (sans warning compose).
-        setkv OVH_APPLICATION_KEY ""
-        setkv OVH_APPLICATION_SECRET ""
-        setkv OVH_CONSUMER_KEY ""
-    fi
+    case "$TLS_MODE" in
+        letsencrypt)
+            setkv OVH_ENDPOINT "$OVH_ENDPOINT"
+            setkv OVH_APPLICATION_KEY "$OVH_APPLICATION_KEY"
+            setkv OVH_APPLICATION_SECRET "$OVH_APPLICATION_SECRET"
+            setkv OVH_CONSUMER_KEY "$OVH_CONSUMER_KEY"
+            ;;
+        manual)
+            setkv ACME_EMAIL "$ACME_EMAIL"
+            # purge les secrets OVH (inutiles en manuel, sans warning compose)
+            setkv OVH_APPLICATION_KEY ""
+            setkv OVH_APPLICATION_SECRET ""
+            setkv OVH_CONSUMER_KEY ""
+            ;;
+        *)
+            # Mode internal : purge les éventuels secrets OVH périmés (sans warning compose).
+            setkv OVH_APPLICATION_KEY ""
+            setkv OVH_APPLICATION_SECRET ""
+            setkv OVH_CONSUMER_KEY ""
+            ;;
+    esac
     chmod 600 "$ENV_FILE"
     step "Configuration écrite dans .env.production"
 }
@@ -275,11 +298,11 @@ summary() {
     echo -e "  ${BOLD}Accès${NC}      : ${GREEN}https://${DOMAIN}:${HTTPS_PORT}${NC}"
     echo -e "  ${BOLD}Bind${NC}       : ${BIND_IP}:${HTTPS_PORT}"
     echo -e "  ${BOLD}Mode TLS${NC}   : ${TLS_MODE}"
-    if [ "$TLS_MODE" = "letsencrypt" ]; then
-        echo -e "  ${BOLD}DNS requis${NC} : ${YELLOW}record A ${DOMAIN} → ${BIND_IP}${NC} (le cert s'émet ensuite)"
-    else
-        echo -e "  ${BOLD}Note${NC}       : certificat auto-signé (mode IP) → avertissement navigateur normal"
-    fi
+    case "$TLS_MODE" in
+        letsencrypt) echo -e "  ${BOLD}DNS requis${NC} : ${YELLOW}record A ${DOMAIN} → ${BIND_IP}${NC} (Caddy émet/renouvelle le cert seul)" ;;
+        manual)      echo -e "  ${BOLD}Cert${NC}       : Let's Encrypt manuel — renouveler ~tous les 60 j : ${BLUE}sudo bash deploy.sh cert${NC}" ;;
+        *)           echo -e "  ${BOLD}Note${NC}       : certificat auto-signé (mode IP) → avertissement navigateur normal" ;;
+    esac
     echo -e "  ${BOLD}Config${NC}     : ${ENV_FILE}"
     echo ""
     echo -e "  ${BOLD}Commandes utiles${NC}"
@@ -288,6 +311,32 @@ summary() {
     echo -e "    ${BLUE}sudo bash deploy.sh config${NC}       changer hôte / port / TLS"
     echo -e "    ${BLUE}sudo bash deploy.sh update${NC}       git pull + rebuild + redémarrage"
     echo ""
+}
+
+# Obtient/renouvelle un cert Let's Encrypt via certbot en challenge DNS-01 MANUEL
+# (certbot affiche le TXT à coller dans la zone DNS). $1="force" pour renouveler.
+obtain_cert_manual() {
+    local force="${1:-}" le_dir="${REPO_DIR}/letsencrypt" email
+    email="$(get_env ACME_EMAIL)"; [ -z "$email" ] && email="${ACME_EMAIL:-admin@${DOMAIN}}"
+    mkdir -p "$le_dir"
+    if [ -f "${le_dir}/live/${DOMAIN}/fullchain.pem" ] && [ "$force" != "force" ]; then
+        step "Certificat déjà présent — réutilisé (renouveler : sudo bash deploy.sh cert)."
+        return 0
+    fi
+    command -v certbot >/dev/null 2>&1 || { log "Installation de certbot…"; apt-get update -qq && apt-get install -y -qq certbot; }
+    echo ""
+    warn "certbot va afficher un enregistrement TXT à créer dans ta zone DNS OVH :"
+    warn "   nom : _acme-challenge.${DOMAIN}"
+    warn "→ crée-le dans l'espace OVH, attends ~1-2 min de propagation, PUIS appuie sur Entrée dans certbot."
+    echo ""
+    if ! certbot certonly --manual --preferred-challenges dns -d "$DOMAIN" \
+            --config-dir "$le_dir" --work-dir "${le_dir}/work" --logs-dir "${le_dir}/logs" \
+            --agree-tos -m "$email" --no-eff-email ${force:+--force-renewal}; then
+        err "Échec de l'obtention du certificat (TXT absent/incorrect, pas encore propagé, ou validation KO)."
+        err "Vérifie : dig +short TXT _acme-challenge.${DOMAIN}   puis relance : sudo bash deploy.sh cert"
+        exit 1
+    fi
+    step "Certificat obtenu : ${le_dir}/live/${DOMAIN}/"
 }
 
 # ----- Commandes -----
@@ -315,6 +364,7 @@ cmd_install() {
     dc build
 
     header "5/6 — Démarrage des containers"
+    if [ "$TLS_MODE" = "manual" ]; then obtain_cert_manual; fi
     dc up -d
     sleep 5
     dc ps
@@ -330,11 +380,29 @@ cmd_config() {
     prompt_config
     apply_config
     prompt_mailer
+    if [ "$TLS_MODE" = "manual" ]; then obtain_cert_manual; fi
     log "Recréation des containers avec la nouvelle config…"
     dc up -d
     sleep 3
     healthcheck
     summary
+}
+
+cmd_cert() {
+    require_root
+    [ -f "$ENV_FILE" ] || { err "Pas encore installé. Lance : sudo bash deploy.sh"; exit 1; }
+    DOMAIN="$(get_env DOMAIN)"; BIND_IP="$(get_env IFSUV_BIND_IP)"; HTTPS_PORT="$(get_env CADDY_HTTPS_PORT)"
+    if [ "$(get_env CADDY_TLS_MODE)" != "manual" ]; then
+        err "Le mode TLS n'est pas 'manual' (renouvellement auto en letsencrypt, inutile en internal)."
+        err "Pour basculer en TLS manuel : sudo bash deploy.sh config"
+        exit 1
+    fi
+    obtain_cert_manual force
+    log "Redémarrage de Caddy avec le nouveau certificat…"
+    dc restart caddy
+    sleep 2
+    healthcheck
+    ok "Certificat renouvelé. À refaire avant la prochaine expiration (~60-90 j)."
 }
 
 cmd_update() {
@@ -361,6 +429,7 @@ shift || true
 case "$CMD" in
     install|"") cmd_install ;;
     config)     cmd_config ;;
+    cert)       cmd_cert ;;
     update)     cmd_update ;;
     logs)       cmd_logs "${1:-}" ;;
     restart)    cmd_restart ;;
