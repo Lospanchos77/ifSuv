@@ -12,14 +12,12 @@
 #   github.com/caddy-dns/ionos  ... etc.
 # Il doit correspondre au fournisseur DNS configuré dans le Caddyfile + .env.
 #
-# Version épinglée (build reproductible). Le wait de propagation DNS est forcé
-# côté Caddyfile (propagation_delay/timeout) pour fiabiliser DNS-01 sur sous-domaine.
-ARG CADDY_VERSION=2.8.4
+# Caddy 2.10 : imposé par caddy-dns/ovh v1.1.0 (le plugin requiert caddy/v2 >= 2.10.0).
+ARG CADDY_VERSION=2.10
 
 FROM caddy:${CADDY_VERSION}-builder AS builder
 ARG CADDY_DNS_MODULE=github.com/caddy-dns/ovh
-# Le builder Caddy 2.8.4 embarque Go 1.23 + GOTOOLCHAIN=local, mais caddy-dns/ovh
-# récent exige Go >= 1.24. On autorise Go à télécharger le toolchain requis.
+# Laisse Go récupérer automatiquement le toolchain requis par le plugin si besoin.
 ENV GOTOOLCHAIN=auto
 RUN xcaddy build --with ${CADDY_DNS_MODULE}
 
