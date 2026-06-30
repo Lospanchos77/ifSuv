@@ -1,4 +1,5 @@
 import '@mantine/core/styles.css';
+import '@mantine/charts/styles.css';
 import 'sweetalert2/dist/sweetalert2.min.css';
 import './lib/swal.css';
 import './components/editor/editor.css';
