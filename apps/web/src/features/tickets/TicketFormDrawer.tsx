@@ -164,7 +164,7 @@ export function TicketFormDrawer({ opened, onClose, ticket }: Props): JSX.Elemen
     <Modal
       opened={opened}
       onClose={onClose}
-      size="lg"
+      size="xl"
       centered
       title={<Title order={4}>{isEdit ? 'Modifier ticket' : 'Nouveau ticket'}</Title>}
     >
@@ -281,6 +281,13 @@ export function TicketFormDrawer({ opened, onClose, ticket }: Props): JSX.Elemen
             placeholder="exemple@domaine.fr"
             {...register('customerEmail')}
             error={errors.customerEmail?.message}
+          />
+          <Textarea
+            label="Problème signalé"
+            placeholder="Décrivez le problème rencontré par le client…"
+            rows={4}
+            {...register('problemType')}
+            error={errors.problemType?.message}
           />
 
           {customFieldDefs.length > 0 && (
