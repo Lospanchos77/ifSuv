@@ -87,13 +87,23 @@ export type TicketTransitionInput = z.infer<typeof TicketTransitionInput>;
 
 export const TicketEventPublic = z.object({
   id: ObjectIdString,
-  actorUserId: ObjectIdString,
+  // Optionnel : les actions via QR technicien (sans login) n'ont pas d'acteur identifié.
+  actorUserId: ObjectIdString.optional(),
   actorName: z.string().optional(),
   type: z.string(),
   payload: z.record(z.unknown()).optional(),
   at: z.string().datetime(),
 });
 export type TicketEventPublic = z.infer<typeof TicketEventPublic>;
+
+/**
+ * Édition du diagnostic via le QR technicien (accès restreint sans login) :
+ * seul le contenu du diagnostic est modifiable — aucun autre champ du ticket.
+ */
+export const TechDiagnosticInput = z.object({
+  diagnosticHtml: z.string().max(50000),
+});
+export type TechDiagnosticInput = z.infer<typeof TechDiagnosticInput>;
 
 /**
  * Pièce jointe d'un ticket (image OU document). Le binaire est servi par l'API
@@ -121,6 +131,13 @@ export const IMAGE_PREVIEW_MIME = [
 /** Pièces jointes (galerie) : tout type de fichier, ≤ 25 Mo, ≤ 20 par ticket. */
 export const TICKET_FILE_MAX_BYTES = 25 * 1024 * 1024;
 export const TICKET_FILE_MAX_COUNT = 20;
+/**
+ * Plafond d'images inline de diagnostic par ticket. Contrairement aux pièces
+ * jointes, ces images sont uploadables via le QR technicien (endpoint public sans
+ * login) : le plafond borne une saturation disque par upload en boucle. Généreux
+ * (documentation photo d'une réparation) tout en coupant l'abus.
+ */
+export const TICKET_DIAG_IMAGE_MAX_COUNT = 100;
 
 export const TicketCompanyEmbed = z.object({
   id: ObjectIdString,

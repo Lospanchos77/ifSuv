@@ -10,6 +10,7 @@ import {
   TicketStatus,
   TICKET_FILE_MAX_BYTES,
   TICKET_FILE_MAX_COUNT,
+  TICKET_DIAG_IMAGE_MAX_COUNT,
   TICKET_PHOTO_MIME_TYPES,
   type CustomerSuggestion,
   type TicketCreateInput,
@@ -157,7 +158,9 @@ export class TicketsService {
   async update(
     id: string,
     input: TicketUpdateInput,
-    actor: { id: Types.ObjectId },
+    // `id` optionnel : les éditions via QR technicien (sans login) n'ont pas
+    // d'utilisateur identifié → l'event est enregistré sans acteur.
+    actor: { id?: Types.ObjectId },
   ): Promise<TicketPublic> {
     const ticket = await this.tickets.findById(id);
     if (!ticket) {
@@ -285,7 +288,9 @@ export class TicketsService {
   async transition(
     id: string,
     input: TicketTransitionInput,
-    actor: { id: Types.ObjectId; role: Role },
+    // `id` optionnel : transition déclenchée via le QR technicien (sans login).
+    // `role` porte les droits de la state-machine (Technician pour le QR).
+    actor: { id?: Types.ObjectId; role: Role },
   ): Promise<TicketPublic> {
     const ticket = await this.tickets.findById(id);
     if (!ticket) {
@@ -708,16 +713,38 @@ export class TicketsService {
     ticketId: string,
     file: { buffer: Buffer; mimeType: string },
   ): Promise<{ filename: string }> {
-    const ticket = await this.tickets.findById(ticketId);
-    if (!ticket) {
-      throw new NotFoundException('Ticket introuvable');
-    }
     if (!(TICKET_PHOTO_MIME_TYPES as readonly string[]).includes(file.mimeType)) {
       throw new BadRequestException('Type de fichier non supporté (jpeg, png, webp)');
     }
+    // Réservation ATOMIQUE d'un « slot » image sous le plafond par ticket. Cet
+    // endpoint est atteignable via le QR technicien (public, sans login) : un cap
+    // non atomique serait contourné par un flood parallèle (toutes les requêtes
+    // lisent le même compteur). Le `$or` gère les tickets créés avant l'ajout du
+    // compteur (champ absent → `$inc` l'initialise). `null` ⇒ plafond atteint (ou
+    // ticket inexistant, qu'on distingue ensuite).
+    const reserved = await this.tickets.findOneAndUpdate(
+      {
+        _id: ticketId,
+        $or: [
+          { diagImageCount: { $exists: false } },
+          { diagImageCount: { $lt: TICKET_DIAG_IMAGE_MAX_COUNT } },
+        ],
+      },
+      { $inc: { diagImageCount: 1 } },
+      { new: true },
+    );
+    if (!reserved) {
+      const exists = await this.tickets.exists({ _id: ticketId });
+      if (!exists) {
+        throw new NotFoundException('Ticket introuvable');
+      }
+      throw new BadRequestException(
+        `Nombre maximal d'images de diagnostic atteint (${TICKET_DIAG_IMAGE_MAX_COUNT})`,
+      );
+    }
     const ext = EXT_BY_MIME[file.mimeType] ?? 'bin';
     const filename = `${randomUUID()}.${ext}`;
-    const key = `tickets/${ticket._id.toString()}/diag/${filename}`;
+    const key = `tickets/${reserved._id.toString()}/diag/${filename}`;
     await this.storage.putObject(key, file.buffer);
     return { filename };
   }
@@ -750,7 +777,9 @@ export class TicketsService {
       : null;
 
     const eventActorIds = uniqueIds(
-      ticket.events.map((e) => (e as unknown as { actorUserId: Types.ObjectId }).actorUserId),
+      ticket.events
+        .map((e) => (e as unknown as { actorUserId?: Types.ObjectId }).actorUserId)
+        .filter((x): x is Types.ObjectId => !!x),
     );
     const eventActors = await this.users.find({ _id: { $in: eventActorIds } });
     const actorsById = byId(eventActors);
@@ -797,15 +826,16 @@ export class TicketsService {
       events: ticket.events.map((event) => {
         const e = event as unknown as {
           _id: Types.ObjectId;
-          actorUserId: Types.ObjectId;
+          actorUserId?: Types.ObjectId;
           type: string;
           payload?: Record<string, unknown>;
           at: Date;
         };
-        const actor = actorsById.get(e.actorUserId.toString());
+        const actorId = e.actorUserId ? e.actorUserId.toString() : undefined;
+        const actor = actorId ? actorsById.get(actorId) : undefined;
         return {
           id: e._id.toString(),
-          actorUserId: e.actorUserId.toString(),
+          actorUserId: actorId,
           actorName: actor ? `${actor.firstName} ${actor.lastName}` : undefined,
           type: e.type,
           payload: e.payload,

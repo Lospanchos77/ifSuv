@@ -3,8 +3,10 @@ import { Types } from 'mongoose';
 
 @Schema({ _id: true })
 export class TicketEvent {
-  @Prop({ type: Types.ObjectId, ref: 'User', required: true })
-  actorUserId!: Types.ObjectId;
+  // Optionnel : les actions déclenchées via le QR technicien (sans login) n'ont
+  // pas d'utilisateur identifié — l'event est alors « anonyme » (via QR).
+  @Prop({ type: Types.ObjectId, ref: 'User' })
+  actorUserId?: Types.ObjectId;
 
   @Prop({ required: true })
   type!: string;

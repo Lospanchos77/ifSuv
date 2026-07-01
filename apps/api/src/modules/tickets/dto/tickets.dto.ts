@@ -1,6 +1,7 @@
 import { createZodDto } from 'nestjs-zod';
 import {
   CustomerSuggestQuery,
+  TechDiagnosticInput,
   TicketCreateInput,
   TicketListQuery,
   TicketListResponse,
@@ -15,6 +16,7 @@ import {
 export class TicketCreateInputDto extends createZodDto(TicketCreateInput) {}
 export class TicketUpdateInputDto extends createZodDto(TicketUpdateInput) {}
 export class TicketTransitionInputDto extends createZodDto(TicketTransitionInput) {}
+export class TechDiagnosticInputDto extends createZodDto(TechDiagnosticInput) {}
 export class TicketListQueryDto extends createZodDto(TicketListQuery) {}
 export class TicketPublicDto extends createZodDto(TicketPublic) {}
 export class TicketFilePublicDto extends createZodDto(TicketFilePublic) {}

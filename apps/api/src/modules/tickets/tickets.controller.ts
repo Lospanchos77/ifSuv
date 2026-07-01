@@ -6,7 +6,6 @@ import {
   Get,
   HttpCode,
   Param,
-  PayloadTooLargeException,
   Patch,
   Post,
   Query,
@@ -15,8 +14,7 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { ApiTags } from '@nestjs/swagger';
-import { IMAGE_PREVIEW_MIME, Role, TICKET_FILE_MAX_BYTES } from '@ifsuv/shared';
-import type { MultipartFile } from '@fastify/multipart';
+import { IMAGE_PREVIEW_MIME, Role } from '@ifsuv/shared';
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Public } from '../../common/decorators/public.decorator';
@@ -27,6 +25,7 @@ import {
   QrTokenService,
 } from '../../infrastructure/tokens/qr-token.service';
 import type { UserDocument } from '../users/schemas/user.schema';
+import { readUploadedFile } from './read-uploaded-file';
 import {
   CustomerSuggestQueryDto,
   TicketCreateInputDto,
@@ -171,7 +170,7 @@ export class TicketsController {
     @Req() req: FastifyRequest,
     @CurrentUser() user: UserDocument,
   ): Promise<TicketFilePublicDto> {
-    const file = await this.readUploadedFile(req);
+    const file = await readUploadedFile(req);
     return this.tickets.addFile(id, file, { id: user._id });
   }
 
@@ -214,7 +213,7 @@ export class TicketsController {
     @Param('id') id: string,
     @Req() req: FastifyRequest,
   ): Promise<{ filename: string }> {
-    const file = await this.readUploadedFile(req);
+    const file = await readUploadedFile(req);
     return this.tickets.addDiagImage(id, file);
   }
 
@@ -230,34 +229,5 @@ export class TicketsController {
     reply.header('Content-Type', contentType);
     reply.header('Cache-Control', 'public, max-age=86400');
     void reply.send(stream);
-  }
-
-  /** Lit un fichier depuis une requête multipart (partagé upload fichier/diag). */
-  private async readUploadedFile(
-    req: FastifyRequest,
-  ): Promise<{ buffer: Buffer; mimeType: string; name: string; size: number }> {
-    let file: MultipartFile | undefined;
-    try {
-      file = await req.file();
-    } catch {
-      throw new BadRequestException('Requête multipart attendue');
-    }
-    if (!file) {
-      throw new BadRequestException('Aucun fichier fourni');
-    }
-    let buffer: Buffer;
-    try {
-      buffer = await file.toBuffer();
-    } catch {
-      throw new PayloadTooLargeException(
-        `Fichier trop volumineux (max ${Math.round(TICKET_FILE_MAX_BYTES / (1024 * 1024))} Mo)`,
-      );
-    }
-    return {
-      buffer,
-      mimeType: file.mimetype,
-      name: file.filename || 'fichier',
-      size: buffer.length,
-    };
   }
 }

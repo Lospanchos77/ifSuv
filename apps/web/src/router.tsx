@@ -14,7 +14,7 @@ import { NotFoundPage } from './routes/not-found/NotFoundPage';
 import { PerformancesPage } from './routes/performances/PerformancesPage';
 import { PublicTicketPage } from './routes/public/PublicTicketPage';
 import { SettingsPage } from './routes/settings/SettingsPage';
-import { TechTokenRedirectPage } from './routes/tech/TechTokenRedirectPage';
+import { TechFichePage } from './routes/tech/TechFichePage';
 import { TicketDetailPage } from './routes/tickets/TicketDetailPage';
 import { TicketFichePage } from './routes/tickets/TicketFichePage';
 import { TicketLabelPage } from './routes/tickets/TicketLabelPage';
@@ -28,6 +28,10 @@ const router = createBrowserRouter([
   // Page publique client (accessible via QR scan, sans auth, sans AppShell)
   { path: '/p/t/:token', element: <PublicTicketPage /> },
 
+  // Accès technicien restreint via QR tech (sans login) : édition statut + diagnostic
+  // de CE ticket uniquement. La capacité est portée par le token signé de l'URL.
+  { path: '/t/t/:token', element: <TechFichePage /> },
+
   {
     element: <RedirectIfAuthenticated />,
     children: [
@@ -39,8 +43,7 @@ const router = createBrowserRouter([
   {
     element: <RequireAuth />,
     children: [
-      // Routes authentifiées SANS AppShell (page d'impression, tech redirect)
-      { path: '/t/t/:token', element: <TechTokenRedirectPage /> },
+      // Routes authentifiées SANS AppShell (pages d'impression)
       { path: '/tickets/:id/print/fiche', element: <TicketFichePage /> },
       { path: '/tickets/:id/print/etiquette', element: <TicketLabelPage /> },
 

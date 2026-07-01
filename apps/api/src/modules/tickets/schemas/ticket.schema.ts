@@ -94,6 +94,12 @@ export class Ticket {
   @Prop({ type: [TicketFileSchema], default: [] })
   files!: TicketFile[];
 
+  // Compteur cumulatif d'images inline de diagnostic uploadées (jamais décrémenté).
+  // Sert de plafond anti-abus sur l'endpoint public (QR technicien). Voir
+  // TICKET_DIAG_IMAGE_MAX_COUNT + TicketsService.addDiagImage.
+  @Prop({ type: Number, default: 0 })
+  diagImageCount!: number;
+
   @Prop({ index: { sparse: true } })
   legacyId?: number;
 
