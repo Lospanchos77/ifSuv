@@ -423,6 +423,10 @@ cmd_update() {
     ( cd "$REPO_DIR" && git pull )
     log "Build + redémarrage…"
     dc build
+    # --force-recreate : compose/buildx ne recrée pas toujours le container quand
+    # SEULE l'image change (même tag) → on force la reprise des images fraîches
+    # pour api/web, sinon un `up -d` peut laisser tourner l'ancien code.
+    dc up -d --force-recreate --no-deps api web
     dc up -d
     sleep 3
     DOMAIN="$(get_env DOMAIN)"; BIND_IP="$(get_env IFSUV_BIND_IP)"; HTTPS_PORT="$(get_env CADDY_HTTPS_PORT)"
