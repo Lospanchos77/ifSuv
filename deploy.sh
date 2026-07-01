@@ -247,7 +247,14 @@ ensure_env() {
 }
 
 apply_config() {
-    local url="https://${DOMAIN}:${HTTPS_PORT}"
+    # URL publique : on OMET le port quand c'est 443 (défaut HTTPS) → Origin navigateur
+    # et liens QR (APP_URL) propres (https://domaine, pas https://domaine:443).
+    local url
+    if [ "$HTTPS_PORT" = "443" ]; then
+        url="https://${DOMAIN}"
+    else
+        url="https://${DOMAIN}:${HTTPS_PORT}"
+    fi
     # QR_TOKEN_SECRET requis par l'API (>= 32 car) — généré s'il manque ou est un placeholder.
     local qr; qr="$(get_env QR_TOKEN_SECRET)"
     if [ "${#qr}" -lt 32 ]; then setkv QR_TOKEN_SECRET "$(openssl rand -hex 32)"; fi
